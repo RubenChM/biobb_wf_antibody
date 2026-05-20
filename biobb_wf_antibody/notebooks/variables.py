@@ -1,0 +1,42 @@
+
+from pathlib import Path
+out_path = Path('data/bio2/')
+ref, ab, ag = "4G6M_HL:A", "4G6K_HL", "4I1B_A"
+ab_pdb_src = str(out_path / '0_base' / f'{ab}.pdb')
+prep_dir = out_path / '1_pre'
+ref_pdb_clean = str(prep_dir / f'{ref}_clean.pdb')
+MD_dir = out_path / '3_MD'
+fixed_pdb = str(MD_dir / f'{ab}_clean.pdb')
+output_pdb2gmx_gro     = str(MD_dir / f'{ab}_pdb2gmx.gro')
+output_pdb2gmx_top_zip = str(MD_dir / f'{ab}_pdb2gmx_top.zip')
+output_editconf_gro = str(MD_dir / f'{ab}_editconf.gro')
+output_solvate_gro = str(MD_dir / f'{ab}_solvate.gro')
+input_mdp_min = MD_dir / "emin-charmm.mdp"
+input_mdp_eq = MD_dir / "md_eq_posre_charmm36m.mdp"
+output_gppmin_tpr = MD_dir / f'{ab}_gppmin.tpr'
+output_md_trr = MD_dir / f'{ab}_md.trr'
+output_md_gro = MD_dir / f'{ab}_md.gro'
+output_md_edr = MD_dir / f'{ab}_md.edr'
+output_md_log = MD_dir / f'{ab}_md.log'
+output_md_cpt = MD_dir / f'{ab}_md.cpt'
+output_imaged_traj_rot = MD_dir / f'{ab}_imaged_traj_rot.trr'
+
+AWH_dir = out_path / '4_AWH'
+AWH_output_pdb2gmx_gro     = str(AWH_dir / f'{ref}_pdb2gmx.gro')
+AWH_output_pdb2gmx_top_zip = str(AWH_dir / f'{ref}_pdb2gmx_top.zip')
+AWH_output_editconf_gro = str(AWH_dir / f'{ref}_editconf.gro')
+AWH_output_solvate_gro     = str(AWH_dir / f'{ref}_solvate.gro')
+AWH_output_solvate_top_zip = str(AWH_dir / f'{ref}_solvate_top.zip')
+AWH_output_genion_gro     = str(AWH_dir / f'{ref}_genion.gro')
+AWH_output_genion_top_zip = str(AWH_dir / f'{ref}_genion_top.zip')
+AWH_output_gppmin_tpr = AWH_dir / f'{ref}_gppmin.tpr'
+AWH_output_min_trr = AWH_dir / f'{ref}_min.trr'
+AWH_output_min_gro = AWH_dir / f'{ref}_min.gro'
+AWH_output_min_edr = AWH_dir / f'{ref}_min.edr'
+AWH_output_min_log = AWH_dir / f'{ref}_min.log'
+AWH_output_gppnpt_tpr = AWH_dir / f'{ref}_gppnpt.tpr'
+AWH_output_npt_trr = AWH_dir / f'{ref}_npt.trr'
+AWH_output_npt_gro = AWH_dir / f'{ref}_npt.gro'
+AWH_output_npt_edr = AWH_dir / f'{ref}_npt.edr'
+AWH_output_npt_log = AWH_dir / f'{ref}_npt.log'
+AWH_output_npt_cpt = AWH_dir / f'{ref}_npt.cpt'

@@ -2,27 +2,28 @@ name: biobb_wf_antibody
 channels:
   - conda-forge
   - bioconda
+  - nodefaults
 dependencies:
-  - python >=3.9,<3.12
-  - jupyter
-  - nglview ==3.1.4
+  - python >=3.10,<3.13
+  - nglview<=4.0
   - ipywidgets
+  - jupyter
   - plotly
-  - biobb_io
-  - biobb_analysis
-  - biobb_gromacs
+  - biobb_io==5.2.3
 
   # Gromacs
-  - biobb_structure_utils
+  - biobb_analysis
+  - biobb_gromacs
   - biobb_model
-  - biobb_chemistry
-  - simpletraj
-  - pytorch-gpu # if not declared anarcii install pytorch-cpu
+  - MDAnalysis
+  # - biobb_structure_utils
+  # - biobb_chemistry
+  # - pytorch-gpu # if not declared anarcii install pytorch-cpu
   - anarcii
   # Haddock
-  - biobb_haddock ==5.0.1
-  - biobb_pdb_tools ==5.0.1
-  - ambertools
+  - biobb_haddock==5.2.1
+  - biobb_pdb_tools==5.2.1
+  # - ambertools
   # PMX
-  - biobb_pmx
-  - scipy==1.13 # Fix?
+  # - biobb_pmx
+  # - scipy==1.13 # Fix?
