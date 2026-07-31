@@ -9,20 +9,19 @@ dependencies:
   - ipywidgets
   - jupyter
   - plotly
-  - biobb_io==5.2.3
+  - biobb_io
 
   # Gromacs
-  - biobb_analysis
-  - biobb_gromacs
+  - biobb_analysis >=5.3.0
+  - biobb_gromacs >=5.3.1
+  - gromacs ==2026=mpi*
   - biobb_model
   - MDAnalysis
-  # - biobb_structure_utils
-  # - biobb_chemistry
   # - pytorch-gpu # if not declared anarcii install pytorch-cpu
-  - anarcii
+  # - anarcii
   # Haddock
-  - biobb_haddock==5.2.1
-  - biobb_pdb_tools==5.2.1
+  - biobb_haddock >=5.3.1
+  - biobb_pdb_tools
   # - ambertools
   # PMX
   # - biobb_pmx

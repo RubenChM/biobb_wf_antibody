@@ -1,6 +1,9 @@
+.pixi/
 data/
 log/
 log*
 **/.ipynb_checkpoints
 run/
 **.pdb
+awh*
+*sandbox*
