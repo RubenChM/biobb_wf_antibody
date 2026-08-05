@@ -1,5 +1,7 @@
 from pathlib import Path
-out_path = Path('data/')
+data_path = Path('data/')
+case_id = 9
+out_path = data_path / f'case_{case_id}'
 ref, ab, ag = "4G6M_HL:A", "4G6K_HL", "4I1B_A"
 ab_pdb_src = str(out_path / '0_base' / f'{ab}.pdb')
 prep_dir = out_path / '1_pre'
@@ -13,7 +15,8 @@ body_tbl = str(prep_dir / f'{ag[:4]}_unambig.tbl')
 dock_dir = out_path / '2_dock'
 # MD
 MD_dir = out_path / '3_MD'
-fixed_pdb = str(MD_dir / f'{ab}_clean.pdb')
+ab_pdb_src_ch = str(prep_dir / 'chains_ab.pdb')
+fixed_pdb = str(MD_dir / f'{ab}_fixed.pdb')
 output_pdb2gmx_gro = str(MD_dir / f'{ab}_pdb2gmx.gro')
 output_pdb2gmx_top_zip = str(MD_dir / f'{ab}_pdb2gmx_top.zip')
 output_editconf_gro = str(MD_dir / f'{ab}_editconf.gro')
@@ -35,7 +38,7 @@ MD_pdb_cluster_clean = str(MD_dir / f'{ab}_clusters_clean.pdb')
 MD_dock_dir = MD_dir / 'docking'
 # AWH
 AWH_dir = out_path / '4_AWH'
-AWH_fixed_pdb = str(AWH_dir / f'{ref}_clean.pdb')
+AWH_fixed_pdb = str(AWH_dir / f'{ref}_fixed.pdb')
 AWH_input_ndx = str(AWH_dir / "index.ndx")
 AWH_output_pdb2gmx_gro = str(AWH_dir / f'{ref}_pdb2gmx.gro')
 AWH_output_pdb2gmx_top_zip = str(AWH_dir / f'{ref}_pdb2gmx_top.zip')

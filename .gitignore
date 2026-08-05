@@ -1,9 +1,13 @@
 .pixi/
-data/
+.jupyter/
+.vscode/
+**/data/
 log/
 log*
 **/.ipynb_checkpoints
+.jupyter_ystore.db
 run/
 **.pdb
+**.pyc
 awh*
 *sandbox*

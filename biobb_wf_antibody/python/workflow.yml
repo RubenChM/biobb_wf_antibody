@@ -1,0 +1,165 @@
+global_properties:
+  working_dir_path: data/case_9
+  can_write_console_log: False
+  # Structures to dock. Every identifier is a PDB code followed by the chains of
+  # interest, the ones after the colon being the antigen chains of the reference
+  # complex, and a trailing '(<n>)' the model to extract from the entry. The PDB
+  # codes of the step0_* sections and the chains and models of the step1_* ones are
+  # derived from these three identifiers, so they are not repeated here.
+  # To dock one of the complexes of the benchmark, do not edit them by hand: run
+  # array/launch_wf.py with the index of the complex and it writes a copy of this
+  # file with the three identifiers and a working directory of its own.
+  reference: 4G6M_HL:A
+  antibody: 4G6K_HL
+  antigen: 4I1B_A
+
+# Single configuration file for the whole workflow. Every step is named
+# 'step<subworkflow index>_<step index>_<step name>', so the sections of each
+# subworkflow are grouped together:
+#   step0_* -> workflow.py    (input structures)
+#   step1_* -> 1_haddock.py   (antibody-antigen docking)
+#   step2_* -> 2_MD.py        (MD of the CDR clusters)
+#   step3_* -> 3_AWH.py       (AWH free energy calculation)
+
+# ============================================================================
+# Length of the GROMACS simulations, shared by the MD (2_MD.py) and the AWH
+# (3_AWH.py) subworkflows: 'prep_mdp' is used by the minimization and the
+# equilibration steps, 'prod_mdp' by the production runs. They are defined once
+# here instead of being repeated in every grompp step.
+# ============================================================================
+
+prep_mdp:
+  properties:
+    mdp:
+      nsteps: 5000
+      nstxout: 1000
+
+prod_mdp:
+  properties:
+    mdp:
+      nsteps: 5000
+      nstxout: 1000
+
+# ============================================================================
+# Subworkflow 0 (workflow.py): download the input structures
+#
+# The 'pdb_code' of each structure is not set here, it is derived from the
+# 'reference', 'antibody' and 'antigen' global properties by workflow.py.
+# ============================================================================
+
+step0_0_pdb_reference:
+  tool: pdb
+  paths:
+    output_pdb_path: reference.pdb
+
+step0_1_pdb_antibody:
+  tool: pdb
+  paths:
+    output_pdb_path: antibody.pdb
+
+step0_2_pdb_antigen:
+  tool: pdb
+  paths:
+    output_pdb_path: antigen.pdb
+
+# ============================================================================
+# Subworkflow 1 (1_haddock.py): antibody-antigen docking with HADDOCK3
+#
+# The chains to keep from each downloaded entry are derived from the three
+# identifiers by 1_haddock.py: the antibody ones are cleaned separately and
+# merged into a single chain A, the antigen ones are relabelled as chain B.
+# ============================================================================
+
+step1_0_prepare_antibody:
+  paths:
+    input_pdb_path: dependency/step0_1_pdb_antibody/output_pdb_path
+    output_pdb_path: antibody_clean.pdb
+
+step1_1_biobb_pdb_merge_antibody:
+  tool: biobb_pdb_merge
+  paths:
+    input_file_path: chains.zip
+    output_file_path: antibody_merged.pdb
+
+step1_2_prepare_antigen:
+  paths:
+    input_pdb_path: dependency/step0_2_pdb_antigen/output_pdb_path
+    output_pdb_path: antigen_clean.pdb
+
+step1_3_prepare_reference_antibody:
+  paths:
+    input_pdb_path: dependency/step0_0_pdb_reference/output_pdb_path
+    output_pdb_path: reference_antibody.pdb
+
+step1_4_biobb_pdb_merge_reference_antibody:
+  tool: biobb_pdb_merge
+  paths:
+    input_file_path: chains.zip
+    output_file_path: reference_antibody_merged.pdb
+
+step1_5_prepare_reference_antigen:
+  paths:
+    input_pdb_path: dependency/step0_0_pdb_reference/output_pdb_path
+    output_pdb_path: reference_antigen.pdb
+
+step1_6_merge_reference_complex:
+  paths:
+    output_pdb_path: reference_clean.pdb
+
+step1_7_haddock_interface:
+  tool: haddock_interface
+  paths:
+    input_pdb_path: dependency/step1_6_merge_reference_complex/output_pdb_path
+    output_txt_path: reference_interface.txt
+  properties:
+    cutoff: 3.9
+
+step1_8_antibody_actpass:
+  paths:
+    output_actpass_path: antibody_actpass.txt
+
+step1_9_haddock3_passive_from_active:
+  tool: haddock3_passive_from_active
+  paths:
+    input_pdb_path: dependency/step1_2_prepare_antigen/output_pdb_path
+    output_actpass_path: antigen_actpass.txt
+
+step1_10_haddock3_actpass_to_ambig:
+  tool: haddock3_actpass_to_ambig
+  paths:
+    input_actpass1_path: dependency/step1_8_antibody_actpass/output_actpass_path
+    input_actpass2_path: dependency/step1_9_haddock3_passive_from_active/output_actpass_path
+    output_tbl_path: ambig-paratope-epitope.tbl
+  properties:
+    segid_one: A
+    segid_two: B
+
+step1_11_haddock3_restrain_bodies:
+  tool: haddock3_restrain_bodies
+  paths:
+    input_structure_path: dependency/step1_0_prepare_antibody/output_pdb_path
+    output_tbl_path: antibody-unambig.tbl
+
+step1_12_haddock3_run:
+  tool: haddock3_run
+  paths:
+    haddock_config_path: 'file:haddock_config.cfg'
+    input_haddock_wf_data: haddock_input
+    output_haddock_wf_data: haddock_output
+  properties:
+    disable_sandbox: True  # Do not copy the input data into the sandbox
+    # Override the sampling of haddock_config.cfg to make the docking run faster,
+    # as the notebook does. Comment it out to run the full protocol.
+    cfg:
+      rigidbody.1:
+        sampling: 200
+      seletop.1:
+        select: 40
+
+# ============================================================================
+# Subworkflow 2 (2_MD.py): MD of the CDR clusters -> step2_*
+# ============================================================================
+
+# ============================================================================
+# Subworkflow 3 (3_AWH.py): AWH free energy calculation -> step3_*
+# ============================================================================
