@@ -1,5 +1,5 @@
 global_properties:
-  working_dir_path: data/case_9
+  working_dir_path: data
   can_write_console_log: False
   # Structures to dock. Every identifier is a PDB code followed by the chains of
   # interest, the ones after the colon being the antigen chains of the reference

@@ -1,9 +1,11 @@
 from pathlib import Path
 data_path = Path('data/')
-case_id = 9
+# case_id = 9
+case_id = 14
 out_path = data_path / f'case_{case_id}'
-ref, ab, ag = "4G6M_HL:A", "4G6K_HL", "4I1B_A"
-ab_pdb_src = str(out_path / '0_base' / f'{ab}.pdb')
+# ref, ab, ag = "4G6M_HL:A", "4G6K_HL", "4I1B_A"
+ref, ab, ag = "3L5W_LH:I", "3L7E_LH", "1IK0_A(11)"
+ab_pdb_src = str(data_path / '0_base' / f'{ab[:4]}.pdb')
 prep_dir = out_path / '1_pre'
 ab_pdb_clean = str(prep_dir / f'{ab[:4]}_clean_ab.pdb')
 ag_pdb_clean = str(prep_dir / f'{ag[:4]}_clean_ag.pdb')
@@ -30,6 +32,7 @@ output_md_gro = MD_dir / f'{ab}_md.gro'
 output_md_edr = MD_dir / f'{ab}_md.edr'
 output_md_log = MD_dir / f'{ab}_md.log'
 output_md_cpt = MD_dir / f'{ab}_md.cpt'
+output_imaged_traj = MD_dir / f'{ab}_imaged_traj.trr'
 output_imaged_traj_rot = MD_dir / f'{ab}_imaged_traj_rot.trr'
 anarcii_pdb = str(Path(fixed_pdb).with_name(f'{ab}_anarcii_imgt.pdb'))
 loop_ndx = MD_dir / f'{ab}_loop.ndx'
