@@ -1,11 +1,18 @@
-"""Plotting helpers used by the biobb_antibody notebook"""
+"""Plotting and structure-visualization helpers used by the biobb_antibody notebook"""
 
+import ipywidgets
 import numpy as np
 import pandas as pd
 import plotly
 import plotly.graph_objs as go
 import matplotlib.pyplot as plt
+import MDAnalysis as mda
+import nglview as nv
+from IPython.display import display, Markdown
+from MDAnalysis.analysis import align
 from plotly import subplots
+
+from cdr import CDR_RANGES
 
 
 def load_xvg(xvg_path):
@@ -174,3 +181,74 @@ def plot_dockq_vs_score(dir, ax = None, colors = ['blue', 'orange'], label = Non
         ax.legend(loc='best')
 
     return ax
+
+
+def show_clusters(cluster_pdb, aligned_pdb, anarcii_pdb, loop_ranges=CDR_RANGES):
+    """Align the cluster representatives of `cluster_pdb` and show them in one NGL view.
+
+    `gmx cluster` writes a single multi-model PDB, one model per cluster, and the models are not
+    superposed on each other. They are aligned here, written to `aligned_pdb`, and displayed
+    overlaid with a dropdown to isolate each cluster. Returns the NGL widget.
+    """
+
+    def on_dropdown_change(change):
+        """Show all clusters or isolate the selected one."""
+        if change['type'] == 'change' and change['name'] == 'value':
+            selected = change['new']
+            print(f"Selected cluster: {selected}")
+            target = "*" if selected == 'All' else f"/{int(selected.split()[-1]) - 1}"
+            view._remote_call('setSelection', target='compList',
+                              args=[target], kwargs=dict(component_index=0))
+
+    # Locate the loops in the representatives. anarcii_pdb carries the IMGT numbering
+    # (non-continuous, gaps at unused positions) while the representatives were renumbered
+    # continuously by pdb2gmx; residue order is preserved between the two, so the loops are mapped
+    # by resindex, not by resid.
+    u_anarcii = mda.Universe(str(anarcii_pdb))
+    loop_resindices = u_anarcii.select_atoms(
+        " or ".join(f"resid {s}-{e}" for s, e in loop_ranges)).residues.resindices
+    loop_resindex_sel = "resindex " + " ".join(map(str, loop_resindices))
+
+    # Superpose every representative on the first one using the backbone *outside* the loops, i.e.
+    # the framework. The clustering ran with 'nofit' on a framework-fitted trajectory, so the
+    # representatives already share that frame and this only takes out the residual offset; fitting
+    # on the loops instead would superpose away the very differences the view is meant to show.
+    mobile = mda.Universe(str(cluster_pdb))
+    ref_u = mda.Universe(str(cluster_pdb))
+    ref_u.trajectory[0]
+    align.AlignTraj(mobile, ref_u, select=f"backbone and not ({loop_resindex_sel})",
+                    filename=str(aligned_pdb)).run()
+    n_models = len(mobile.trajectory)
+
+    # Highlight the loops by absolute atom index ('@' in the NGL selection language). Neither the
+    # chain nor the residue number can be used: the representatives come from the simulation
+    # topology, so every atom lands in a single chain, and pdb2gmx numbering restarts on the second
+    # chain, leaving duplicated residue numbers.
+    #
+    # NGL keeps every model of the file in one structure and numbers their atoms consecutively, so
+    # the indices of the first model have to be repeated for each of the following ones, shifted by
+    # a whole model. Without the shift only the first cluster is highlighted.
+    u_display = mda.Universe(str(aligned_pdb))
+    loop_ix, n_atoms = u_display.select_atoms(loop_resindex_sel).ix, u_display.atoms.n_atoms
+    cdr_selection = "@" + ",".join(str(ix + model * n_atoms)
+                                   for model in range(n_models) for ix in loop_ix)
+
+    # Dropdown to pick a single cluster (or all of them)
+    opts = ['All'] + [f"Cluster {i + 1}" for i in range(n_models)]
+    mdsel = ipywidgets.Dropdown(options=opts, description='Cluster:', disabled=False)
+
+    # Overlay every cluster: full structure in grey, CDR loops highlighted
+    view = nv.show_structure_file(str(aligned_pdb))
+    view.add_cartoon(color='lightgrey', opacity=0.4)
+    view.add_licorice(selection=cdr_selection, color="green")
+    view._remote_call('setSize', target='Widget', args=['', '600px'])
+    view.layout.margin = "auto"
+    view.camera = 'orthographic'
+    view._remote_call('setSelection', target='compList', args=['*'], kwargs=dict(component_index=0))
+
+    mdsel.observe(on_dropdown_change, names='value')
+    # The cutoff, not a target count, decides how many clusters come out
+    display(Markdown(f"##### {n_models} CDR-loop cluster{'s' if n_models > 1 else ''}, "
+                     "loops in green. Select a cluster:"))
+    display(mdsel)
+    return view
