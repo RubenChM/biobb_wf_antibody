@@ -35,26 +35,26 @@ reference_pdb_src = str(entry_pdb_path(reference))
 # HADDOCK3 baseline docking
 # ============================================================================
 
-prep_dir = out_path / '1_pre'
-antibody_pdb_clean = str(prep_dir / 'antibody_clean.pdb')
-antigen_pdb_clean = str(prep_dir / 'antigen_clean.pdb')
-reference_pdb_antibody = str(prep_dir / 'reference_antibody.pdb')
-reference_pdb_antigen = str(prep_dir / 'reference_antigen.pdb')
-zip_file_path = str(prep_dir / 'reference.zip')  # the two halves, fed to pdb_merge
-reference_pdb_clean = str(prep_dir / 'reference_clean.pdb')
-reference_interface = str(prep_dir / 'reference_interface.txt')
-antibody_actpass = str(prep_dir / 'antibody_actpass.txt')
-antigen_actpass = str(prep_dir / 'antigen_actpass.txt')
-ambig_tbl = str(prep_dir / 'ambig-paratope-epitope.tbl')
-unambig_tbl = str(prep_dir / 'antibody-unambig.tbl')
-dock_dir = out_path / '2_dock'
+dock_dir = out_path / '1_dock'
+dock_inp = dock_dir / 'input'
+antibody_pdb_clean = str(dock_inp / 'antibodyn.pdb')
+antigen_pdb_clean = str(dock_inp / 'antigen.pdb')
+reference_pdb_antibody = str(dock_dir / 'reference_antibody.pdb')
+reference_pdb_antigen = str(dock_dir / 'reference_antigen.pdb')
+zip_file_path = str(dock_dir / 'reference.zip')  # the two halves, fed to pdb_merge
+reference_pdb_clean = str(dock_inp / 'reference.pdb')
+reference_interface = str(dock_dir / 'reference_interface.txt')
+antibody_actpass = str(dock_dir / 'antibody_actpass.txt')
+antigen_actpass = str(dock_dir / 'antigen_actpass.txt')
+ambig_tbl = str(dock_inp / 'ambig-paratope-epitope.tbl')
+unambig_tbl = str(dock_inp / 'antibody-unambig.tbl')
 haddock_best_pdb = str(dock_dir / 'output' / 'run' / '10_seletopclusts' / 'cluster_1_model_1.pdb')
 
 # ============================================================================
 # Free MD of the antibody -> CDR loop clusters
 # ============================================================================
 
-MD_dir = out_path / '3_MD'
+MD_dir = out_path / '2_MD'
 MD_antibody_pdb_chains = str(MD_dir / 'antibody_chains.pdb')
 MD_fixed_pdb = str(MD_dir / 'antibody_fixed.pdb')
 MD_output_pdb2gmx_gro = str(MD_dir / 'antibody_pdb2gmx.gro')
@@ -114,7 +114,7 @@ MD_dock_dir = MD_dir / 'docking'
 # AWH-MD of the antibody-antigen complex -> CDR loop clusters
 # ============================================================================
 
-AWH_dir = out_path / '4_AWH'
+AWH_dir = out_path / '3_AWH'
 AWH_fixed_pdb = str(AWH_dir / 'complex_fixed.pdb')
 AWH_output_pdb2gmx_gro = str(AWH_dir / 'complex_pdb2gmx.gro')
 AWH_output_pdb2gmx_top_zip = str(AWH_dir / 'complex_pdb2gmx_top.zip')

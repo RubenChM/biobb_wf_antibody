@@ -1,0 +1,76 @@
+; From awh-basic-main/data/input/AWH_multiple.mdp
+;
+; Template, not a usable mdp file: '{awh_min}' and '{awh_max}' are the edges of the
+; AWH sampling interval in nm, and 3_AWH.py fills them in from the antibody-antigen
+; centre of mass distance measured on the equilibrated system.
+; 'nsteps' and 'nstxout' are overridden by the 'prod_mdp' section of workflow.yml.
+integrator              = md
+dt                      = 0.002
+nsteps                  = 500000000 ;1000ns
+nstxtcout               = 50000
+nstvout                 = 50000
+nstfout                 = 50000
+nstcalcenergy           = 100
+nstenergy               = 1000
+nstlog                  = 1000
+;
+cutoff-scheme           = Verlet
+nstlist                 = 20
+vdwtype                 = Cut-off
+vdw-modifier            = None
+DispCorr                = EnerPres
+rvdw                    = 0.9
+rlist                   = 0.9
+rcoulomb                = 0.9
+coulombtype             = PME
+;
+tcoupl                  = v-rescale
+tc_grps                 = Protein  non-Protein
+tau_t                   = 1.0      1.0
+ref_t                   = 298.15   298.15
+;
+pcoupl                  = c-rescale
+pcoupltype              = isotropic
+tau_p                   = 5.0
+compressibility         = 4.5e-5
+ref_p                   = 1.0
+;
+constraints             = h-bonds
+constraint_algorithm    = LINCS
+continuation            = yes
+;
+pull                     = yes                 ; The reaction coordinate (RC) is defined using pull coordinates.
+pull-ngroups             = 2                   ; The number of atom groups needed to define the pull coordinate.
+pull-ncoords             = 1                   ; Number of pull coordinates.
+pull-nstxout             = 5000                ; Step interval to output the coordinate values to the pullx.xvg.
+pull-nstfout             = 0                   ; Step interval to output the applied force (skip here).
+
+pull-group1-name         = chA                 ; Name of pull group 1 corresponding to an entry in an index file.
+pull-group2-name         = chB                 ; Same, but for group 2.
+
+pull-coord1-groups       = 1 2                 ; Which groups define coordinate 1? Here, groups 1 and 2.
+pull-coord1-type         = external-potential  ; Apply the bias using an external module.
+pull-coord1-potential-provider = AWH           ; The external module is called AWH!
+
+
+awh                      = yes                 ; AWH on.
+awh-nstout               = 50000               ; Step interval for writing awh*.xvg files.
+awh-nbias                = 1                   ; One bias, could have multiple.
+; Coordinate sampling interval in number of steps
+awh-nstsample            = 250
+; Free energy and bias update interval in number of samples
+awh-nsamples-update      = 1
+awh1-target               = boltzmann
+awh1-equilibrate-histogram= yes
+
+awh1-dim1-coord-index     = 1
+awh1-ndim                = 1                   ; Dimensionality of the RC, each dimension per pull coordinate.
+awh1-dim1-start          = {awh_min}           ; Start of the sampling interval (nm)
+awh1-dim1-end            = {awh_max}           ; End of the sampling interval (nm)
+awh1-dim1-force-constant = 40000               ; Force constant of the harmonic potential (kJ/(mol*nm^2))
+awh1-dim1-diffusion      = 5e-5                ; Estimate of the diffusion (nm^2/ps)
+
+awh-share-multisim = yes
+awh1-share-group = 1
+
+awh1-dim1-cover-diameter=0.5

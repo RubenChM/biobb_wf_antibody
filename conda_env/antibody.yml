@@ -21,7 +21,7 @@ dependencies:
   # - anarcii
   # Haddock
   - biobb_haddock >=5.3.1
-  - biobb_pdb_tools
+  - biobb_pdb_tools >=5.3.1
   # - ambertools
   # PMX
   # - biobb_pmx

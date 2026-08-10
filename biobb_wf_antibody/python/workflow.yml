@@ -1,38 +1,7 @@
 global_properties:
-  working_dir_path: data
+  working_dir_path: output
+  restart: True
   can_write_console_log: False
-  # Structures to dock. Every identifier is a PDB code followed by the chains of
-  # interest, the ones after the colon being the antigen chains of the reference
-  # complex, and a trailing '(<n>)' the model to extract from the entry. The PDB
-  # codes of the step0_* sections and the chains and models of the step1_* ones are
-  # derived from these three identifiers, so they are not repeated here.
-  # To dock one of the complexes of the benchmark, do not edit them by hand: run
-  # array/launch_wf.py with the index of the complex and it writes a copy of this
-  # file with the three identifiers and a working directory of its own.
-  reference: 4G6M_HL:A
-  antibody: 4G6K_HL
-  antigen: 4I1B_A
-  # Antibody-antigen complexes of the Protein-Protein Interaction Benchmark 5
-  # Just for reference, the workflow does not use them
-  complexes:
-    #  Reference          Antibody     A
-    - [2VXT_HL:I,        2VXU_HL,     1J0S_A]
-    - [2W9E_HL:A,        2W9D_HL,     1QM1_A]
-    - [3EOA_LH:I,        3EO9_LH,     3F74_A]
-    - [3HMX_LH:AB,       3HMW_LH,     1F45_AB]
-    - [3MXW_LH:A,        3MXV_LH,     3M1N_A]
-    - [5VPG_CD:A,        3RVT_CD,     3F5V_A]
-    - [4DN4_LH:M,        4DN3_LH,     1DOL_A]
-    - [4FQI_HL:ABEFCD,   4FQH_HL,     2FK0_ABCDEF]
-    - [4G6J_HL:A,        4G5Z_HL,     4I1B_A]
-    - [4G6M_HL:A,        4G6K_HL,     4I1B_A]
-    - [4GXU_MN:ABEFCD,   4GXV_HL,     1RUZ_HIJKLM]
-    # Medium difficult
-    - [3EO1_AB:CF,       3EO0_AB,     1TGJ_AB]
-    - [3G6D_LH:A,        3G6A_LH,     '1IK0_A(10)']
-    - [3HI6_XY:B,        3HI5_HL,     1MJN_A]
-    - [3L5W_LH:I,        3L7E_LH,     '1IK0_A(11)']
-    - [3V6Z_AB:F,        3V6F_AB,     3KXS_F]
 
 # Single configuration file for the whole workflow. Every step is named
 # 'step<subworkflow index>_<step index>_<step name>', so the sections of each
@@ -43,42 +12,37 @@ global_properties:
 #   step3_* -> 3_AWH.py       (AWH free energy calculation)
 
 # ============================================================================
-# Length of the GROMACS simulations, shared by the MD (2_MD.py) and the AWH
-# (3_AWH.py) subworkflows: 'prep_mdp' is used by the minimization and the
-# equilibration steps, 'prod_mdp' by the production runs. They are defined once
-# here instead of being repeated in every grompp step.
-# ============================================================================
-
-prep_mdp:
-  properties:
-    mdp:
-      nsteps: 5000
-      nstxout: 1000
-
-prod_mdp:
-  properties:
-    mdp:
-      nsteps: 5000
-      nstxout: 1000
-
-# ============================================================================
 # Subworkflow 0 (workflow.py): download the input structures
 #
 # The 'pdb_code' of each structure is not set here, it is derived from the
 # 'reference', 'antibody' and 'antigen' global properties by workflow.py.
 # ============================================================================
 
-step0_0_pdb_reference:
+step0_0_pdb_codes:
+  # Structures to dock. Every identifier is a PDB code followed by the chains of
+  # interest, the ones after the colon being the antigen chains of the reference
+  # complex, and a trailing '(<n>)' the model to extract from the entry. The PDB
+  # codes of the step0_* sections and the chains and models of the step1_* ones are
+  # derived from these three identifiers, so they are not repeated here.
+  # To dock one of the complexes of the benchmark, do not edit them by hand: run
+  # array/launch_wf.py with the index of the complex and it writes a copy of this
+  # file with the three identifiers and a working directory of its own.
+  properties:
+    reference: 4G6M_HL:A
+    antibody: 4G6K_HL
+    antigen: 4I1B_A
+
+step0_1_pdb_reference:
   tool: pdb
   paths:
     output_pdb_path: reference.pdb
 
-step0_1_pdb_antibody:
+step0_2_pdb_reference:
   tool: pdb
   paths:
     output_pdb_path: antibody.pdb
 
-step0_2_pdb_antigen:
+step0_3_pdb_reference:
   tool: pdb
   paths:
     output_pdb_path: antigen.pdb
@@ -93,7 +57,7 @@ step0_2_pdb_antigen:
 
 step1_0_prepare_antibody:
   paths:
-    input_pdb_path: dependency/step0_1_pdb_antibody/output_pdb_path
+    input_pdb_path: dependency/step0_2_pdb_reference/output_pdb_path
     output_pdb_path: antibody_clean.pdb
 
 step1_1_biobb_pdb_merge_antibody:
@@ -104,12 +68,12 @@ step1_1_biobb_pdb_merge_antibody:
 
 step1_2_prepare_antigen:
   paths:
-    input_pdb_path: dependency/step0_2_pdb_antigen/output_pdb_path
+    input_pdb_path: dependency/step0_3_pdb_reference/output_pdb_path
     output_pdb_path: antigen_clean.pdb
 
 step1_3_prepare_reference_antibody:
   paths:
-    input_pdb_path: dependency/step0_0_pdb_reference/output_pdb_path
+    input_pdb_path: dependency/step0_1_pdb_reference/output_pdb_path
     output_pdb_path: reference_antibody.pdb
 
 step1_4_biobb_pdb_merge_reference_antibody:
@@ -120,7 +84,7 @@ step1_4_biobb_pdb_merge_reference_antibody:
 
 step1_5_prepare_reference_antigen:
   paths:
-    input_pdb_path: dependency/step0_0_pdb_reference/output_pdb_path
+    input_pdb_path: dependency/step0_1_pdb_reference/output_pdb_path
     output_pdb_path: reference_antigen.pdb
 
 step1_6_merge_reference_complex:
@@ -164,23 +128,701 @@ step1_11_haddock3_restrain_bodies:
 step1_12_haddock3_run:
   tool: haddock3_run
   paths:
-    haddock_config_path: 'file:haddock_config.cfg'
+    haddock_config_path: 'file:inputs/haddock_config.cfg'
     input_haddock_wf_data: haddock_input
     output_haddock_wf_data: haddock_output
+  # The configuration file and the overrides come from the shared 'haddock' section
+
+# ============================================================================
+# Subworkflow 2 (2_MD.py): free MD of the unbound antibody, clustering of the
+# conformations its CDR loops sample, and docking of that ensemble
+#
+# The chains to keep are derived from the 'antibody' global property by 2_MD.py,
+# and the antigen, the reference complex and the restraint tables of the docking
+# are the ones the baseline run of 1_haddock.py prepared.
+# ============================================================================
   properties:
     disable_sandbox: True  # Do not copy the input data into the sandbox
-    # Override the sampling of haddock_config.cfg to make the docking run faster,
-    # as the notebook does. Comment it out to run the full protocol.
+    # Override the sampling of haddock_config.cfg to make the docking run
+    # faster, as the notebook does. The three docking runs of the workflow
+    # must keep the same values to stay comparable.
     cfg:
       rigidbody.1:
         sampling: 200
       seletop.1:
-        select: 40
+        select: 50
+
+step2_0_biobb_pdb_selchain:
+  tool: biobb_pdb_selchain
+  paths:
+    input_file_path: dependency/step0_2_pdb_reference/output_pdb_path
+    output_file_path: antibody_chains.pdb
+
+step2_1_fix_side_chain:
+  tool: fix_side_chain
+  paths:
+    input_pdb_path: dependency/step2_0_biobb_pdb_selchain/output_file_path
+    output_pdb_path: antibody_fixed.pdb
+
+# Not a building block: the force field is downloaded once and the directory is
+# handed to every pdb2gmx and grompp step below as its GMXLIB
+
+step2_2_charmm36:
+  paths:
+    output_ff_path: ff
+  properties:
+    force_field: charmm36-jul2017
+    url: https://mackerell.umaryland.edu/download.php?filename=CHARMM_ff_params_files/charmm36-jul2017.ff.tgz
+
+step2_3_pdb2gmx:
+  tool: pdb2gmx
+  paths:
+    input_pdb_path: dependency/step2_1_fix_side_chain/output_pdb_path
+    output_gro_path: antibody_pdb2gmx.gro
+    output_top_zip_path: antibody_pdb2gmx_top.zip
+  properties:
+    force_field: charmm36-jul2017
+    water_type: tip3p
+    ignh: True
+    binary_path: gmx_mpi
+
+step2_4_editconf:
+  tool: editconf
+  paths:
+    input_gro_path: dependency/step2_3_pdb2gmx/output_gro_path
+    output_gro_path: antibody_editconf.gro
+  properties:
+    box_type: dodecahedron
+    distance_to_molecule: 0.7
+    center_molecule: False
+    binary_path: gmx_mpi
+
+step2_5_solvate:
+  tool: solvate
+  paths:
+    input_solute_gro_path: dependency/step2_4_editconf/output_gro_path
+    input_top_zip_path: dependency/step2_3_pdb2gmx/output_top_zip_path
+    output_gro_path: antibody_solvate.gro
+    output_top_zip_path: antibody_solvate_top.zip
+  properties:
+    binary_path: gmx_mpi
+
+step2_6_grompp_ions:
+  tool: grompp
+  paths:
+    input_gro_path: dependency/step2_5_solvate/output_gro_path
+    input_top_zip_path: dependency/step2_5_solvate/output_top_zip_path
+    output_tpr_path: antibody_gppion.tpr
+  properties:
+    simulation_type: ions
+    maxwarn: 1
+    binary_path: gmx_mpi
+
+step2_7_genion:
+  tool: genion
+  paths:
+    input_tpr_path: dependency/step2_6_grompp_ions/output_tpr_path
+    input_top_zip_path: dependency/step2_5_solvate/output_top_zip_path
+    output_gro_path: antibody_genion.gro
+    output_top_zip_path: antibody_genion_top.zip
+  properties:
+    neutral: True
+    ionic_concentration: 0.15
+    binary_path: gmx_mpi
+
+step2_8_grompp_min:
+  tool: grompp
+  paths:
+    input_gro_path: dependency/step2_7_genion/output_gro_path
+    input_top_zip_path: dependency/step2_7_genion/output_top_zip_path
+    input_mdp_path: 'file:inputs/emin-charmm.mdp'
+    output_tpr_path: antibody_gppmin.tpr
+  properties:
+    binary_path: gmx_mpi
+
+step2_9_mdrun_min:
+  tool: mdrun
+  paths:
+    input_tpr_path: dependency/step2_8_grompp_min/output_tpr_path
+    output_trr_path: antibody_min.trr
+    output_gro_path: antibody_min.gro
+    output_edr_path: antibody_min.edr
+    output_log_path: antibody_min.log
+  properties:
+    binary_path: gmx_mpi
+
+step2_10_gmx_energy_min:
+  tool: gmx_energy
+  paths:
+    input_energy_path: dependency/step2_9_mdrun_min/output_edr_path
+    output_xvg_path: antibody_min_ene.xvg
+  properties:
+    terms: [Potential]
+    binary_path: gmx_mpi
+
+step2_11_grompp_npt:
+  tool: grompp
+  paths:
+    input_gro_path: dependency/step2_9_mdrun_min/output_gro_path
+    input_top_zip_path: dependency/step2_7_genion/output_top_zip_path
+    input_mdp_path: 'file:inputs/md_eq_posre_charmm36m.mdp'
+    output_tpr_path: antibody_gppnpt.tpr
+  properties:
+    maxwarn: 1
+    binary_path: gmx_mpi
+    mdp:
+      nsteps: 5000
+      nstxout: 1000
+      Define: -DPOSRES
+
+step2_12_mdrun_npt:
+  tool: mdrun
+  paths:
+    input_tpr_path: dependency/step2_11_grompp_npt/output_tpr_path
+    output_trr_path: antibody_npt.trr
+    output_gro_path: antibody_npt.gro
+    output_edr_path: antibody_npt.edr
+    output_log_path: antibody_npt.log
+    output_cpt_path: antibody_npt.cpt
+  properties:
+    binary_path: gmx_mpi
+
+step2_13_gmx_energy_npt:
+  tool: gmx_energy
+  paths:
+    input_energy_path: dependency/step2_12_mdrun_npt/output_edr_path
+    output_xvg_path: antibody_npt_PD.xvg
+  properties:
+    terms: [Pressure, Density]
+    binary_path: gmx_mpi
+
+step2_14_grompp_md:
+  tool: grompp
+  paths:
+    input_gro_path: dependency/step2_12_mdrun_npt/output_gro_path
+    input_cpt_path: dependency/step2_12_mdrun_npt/output_cpt_path
+    input_top_zip_path: dependency/step2_7_genion/output_top_zip_path
+    input_mdp_path: 'file:inputs/md_charmm36m.mdp'
+    output_tpr_path: antibody_gppmd.tpr
+  properties:
+    maxwarn: 1
+    binary_path: gmx_mpi
+    mdp:
+      nsteps: 5000
+      nstxout: 1000
+
+step2_15_mdrun_md:
+  tool: mdrun
+  paths:
+    input_tpr_path: dependency/step2_14_grompp_md/output_tpr_path
+    output_trr_path: antibody_md.trr
+    output_gro_path: antibody_md.gro
+    output_edr_path: antibody_md.edr
+    output_log_path: antibody_md.log
+    output_cpt_path: antibody_md.cpt
+  properties:
+    binary_path: gmx_mpi
+
+step2_16_gmx_image_nojump:
+  tool: gmx_image
+  paths:
+    input_traj_path: dependency/step2_15_mdrun_md/output_trr_path
+    input_top_path: dependency/step2_8_grompp_min/output_tpr_path
+    output_traj_path: antibody_imaged_traj.trr
+  properties:
+    center_selection: Protein
+    output_selection: Protein
+    pbc: nojump
+    binary_path: gmx_mpi
+
+step2_17_gmx_trjconv_str_dry:
+  tool: gmx_trjconv_str
+  paths:
+    input_structure_path: dependency/step2_15_mdrun_md/output_gro_path
+    input_top_path: dependency/step2_14_grompp_md/output_tpr_path
+    output_str_path: antibody_md_dry.gro
+  properties:
+    selection: Protein
+    binary_path: gmx_mpi
+
+step2_18_gmx_image_rot:
+  tool: gmx_image
+  paths:
+    input_traj_path: dependency/step2_16_gmx_image_nojump/output_traj_path
+    input_top_path: dependency/step2_17_gmx_trjconv_str_dry/output_str_path
+    output_traj_path: antibody_imaged_traj_rot.trr
+  properties:
+    fit: rot+trans
+    center: True
+    binary_path: gmx_mpi
+
+step2_19_anarcii:
+  tool: anarcii
+  paths:
+    input_pdb_path: dependency/step2_1_fix_side_chain/output_pdb_path
+    output_pdb_path: antibody_anarcii_imgt.pdb
+
+step2_20_pdb2gmx_anarcii:
+  tool: pdb2gmx
+  paths:
+    input_pdb_path: dependency/step2_19_anarcii/output_pdb_path
+    output_gro_path: antibody_anarcii.gro
+    output_top_zip_path: antibody_anarcii.zip
+  properties:
+    force_field: charmm36-jul2017
+    water_type: tip3p
+
+# The 'selection' property is built by 2_MD.py: it resolves the IMGT CDR
+# (27-38, 56-65, 105-117) and framework (1-26, 39-55, 66-104, 118-129) ranges
+# onto this system and intersects them with the C-alpha group, which gives the
+# Loop_CA / Framework_CA groups the framework fit and the clustering below run on
+    binary_path: gmx_mpi
+
+step2_21_make_ndx:
+  tool: make_ndx
+  paths:
+    input_structure_path: dependency/step2_20_pdb2gmx_anarcii/output_gro_path
+    output_ndx_path: antibody_loop.ndx
+  properties:
+    binary_path: gmx_mpi
+
+step2_22_gmx_image_framework:
+  tool: gmx_image
+  paths:
+    input_traj_path: dependency/step2_16_gmx_image_nojump/output_traj_path
+    input_top_path: dependency/step2_17_gmx_trjconv_str_dry/output_str_path
+    input_index_path: dependency/step2_21_make_ndx/output_ndx_path
+    output_traj_path: antibody_imaged_traj_fw.trr
+  properties:
+    fit: rot+trans
+    fit_selection: Framework_CA
+    output_selection: System
+    center: False
+    binary_path: gmx_mpi
+
+step2_23_gmx_cluster:
+  tool: gmx_cluster
+  paths:
+    input_structure_path: dependency/step2_17_gmx_trjconv_str_dry/output_str_path
+    input_traj_path: dependency/step2_22_gmx_image_framework/output_traj_path
+    input_index_path: dependency/step2_21_make_ndx/output_ndx_path
+    output_pdb_path: antibody_clusters.pdb
+  properties:
+    fit_selection: Loop_CA
+    output_selection: System
+    method: gromos
+    cutoff: 0.13
+    nofit: True
+    binary_path: gmx_mpi
+
+step2_24_clean_clusters:
+  paths:
+    output_pdb_path: antibody_clusters_clean.pdb
+
+# The experimental structure is added to the ensemble, so the conformation the
+# baseline run docked is always among the ones HADDOCK3 can pick
+
+step2_25_build_ensemble:
+  paths:
+    input_antibody_pdb_path: dependency/step1_0_prepare_antibody/output_pdb_path
+    output_zip_path: antibody_clusters_clean.zip
+    output_pdb_path: antibody_docking.pdb
+
+# The antigen, the reference complex and the restraint tables are the ones of the
+# baseline docking, and so are the configuration file and the overrides, which come
+# from the shared 'haddock' section: only the antibody differs, here it is the
+# CDR-loop ensemble instead of the single experimental structure
+
+step2_26_haddock3_run:
+  tool: haddock3_run
+  paths:
+    haddock_config_path: 'file:inputs/haddock_config.cfg'
+    input_antigen_pdb_path: dependency/step1_2_prepare_antigen/output_pdb_path
+    input_reference_pdb_path: dependency/step1_6_merge_reference_complex/output_pdb_path
+    input_ambig_tbl_path: dependency/step1_10_haddock3_actpass_to_ambig/output_tbl_path
+    input_unambig_tbl_path: dependency/step1_11_haddock3_restrain_bodies/output_tbl_path
+    input_haddock_wf_data: haddock_input
+    output_haddock_wf_data: haddock_output
 
 # ============================================================================
-# Subworkflow 2 (2_MD.py): MD of the CDR clusters -> step2_*
+# Subworkflow 3 (3_AWH.py): AWH-MD of the best docked complex, clustering of the
+# conformations its CDR loops sample with the antigen in place, and docking of
+# that ensemble
+#
+# The complex to simulate is the best model of the baseline docking, and the
+# IMGT-renumbered antibody the CDR regions are mapped through is the one the MD
+# subworkflow wrote, so step2_19_anarcii has to have run before this one.
 # ============================================================================
 
-# ============================================================================
-# Subworkflow 3 (3_AWH.py): AWH free energy calculation -> step3_*
-# ============================================================================
+# The complex to simulate is the best model of the baseline docking. HADDOCK3 gzips
+# the structures it writes, so it is decompressed into 'output_best_model_path' first
+  properties:
+    disable_sandbox: True  # Do not copy the input data into the sandbox
+    # Override the sampling of haddock_config.cfg to make the docking run
+    # faster, as the notebook does. The three docking runs of the workflow
+    # must keep the same values to stay comparable.
+    cfg:
+      rigidbody.1:
+        sampling: 200
+      seletop.1:
+        select: 50
+
+step3_0_fix_side_chain:
+  tool: fix_side_chain
+  paths:
+    input_haddock_wf_data: dependency/step1_12_haddock3_run/output_haddock_wf_data
+    output_best_model_path: complex_best_model.pdb
+    output_pdb_path: complex_fixed.pdb
+
+step3_1_charmm36:
+  paths:
+    output_ff_path: dependency/step2_2_charmm36/output_ff_path
+  properties:
+    force_field: charmm36-jul2017
+    url: https://mackerell.umaryland.edu/download.php?filename=CHARMM_ff_params_files/charmm36-jul2017.ff.tgz
+
+step3_2_pdb2gmx:
+  tool: pdb2gmx
+  paths:
+    input_pdb_path: dependency/step3_0_fix_side_chain/output_pdb_path
+    output_gro_path: complex_pdb2gmx.gro
+    output_top_zip_path: complex_pdb2gmx_top.zip
+  properties:
+    force_field: charmm36-jul2017
+    water_type: tip3p
+    ignh: True
+    binary_path: gmx_mpi
+
+step3_3_editconf:
+  tool: editconf
+  paths:
+    input_gro_path: dependency/step3_2_pdb2gmx/output_gro_path
+    output_gro_path: complex_editconf.gro
+  properties:
+    box_type: dodecahedron
+    distance_to_molecule: 0.7
+    center_molecule: True
+    binary_path: gmx_mpi
+
+step3_4_solvate:
+  tool: solvate
+  paths:
+    input_solute_gro_path: dependency/step3_3_editconf/output_gro_path
+    input_top_zip_path: dependency/step3_2_pdb2gmx/output_top_zip_path
+    output_gro_path: complex_solvate.gro
+    output_top_zip_path: complex_solvate_top.zip
+  properties:
+    binary_path: gmx_mpi
+
+step3_5_grompp_ions:
+  tool: grompp
+  paths:
+    input_gro_path: dependency/step3_4_solvate/output_gro_path
+    input_top_zip_path: dependency/step3_4_solvate/output_top_zip_path
+    output_tpr_path: complex_gppion.tpr
+  properties:
+    simulation_type: ions
+    maxwarn: 2
+    binary_path: gmx_mpi
+
+step3_6_genion:
+  tool: genion
+  paths:
+    input_tpr_path: dependency/step3_5_grompp_ions/output_tpr_path
+    input_top_zip_path: dependency/step3_4_solvate/output_top_zip_path
+    output_gro_path: complex_genion.gro
+    output_top_zip_path: complex_genion_top.zip
+  properties:
+    neutral: True
+    ionic_concentration: 0.15
+    binary_path: gmx_mpi
+
+step3_7_grompp_min:
+  tool: grompp
+  paths:
+    input_gro_path: dependency/step3_6_genion/output_gro_path
+    input_top_zip_path: dependency/step3_6_genion/output_top_zip_path
+    input_mdp_path: 'file:inputs/emin-charmm.mdp'
+    output_tpr_path: complex_gppmin.tpr
+  properties:
+    maxwarn: 1
+    binary_path: gmx_mpi
+
+step3_8_mdrun_min:
+  tool: mdrun
+  paths:
+    input_tpr_path: dependency/step3_7_grompp_min/output_tpr_path
+    output_trr_path: complex_min.trr
+    output_gro_path: complex_min.gro
+    output_edr_path: complex_min.edr
+    output_log_path: complex_min.log
+  properties:
+    binary_path: gmx_mpi
+
+step3_9_gmx_energy_min:
+  tool: gmx_energy
+  paths:
+    input_energy_path: dependency/step3_8_mdrun_min/output_edr_path
+    output_xvg_path: complex_min_ene.xvg
+  properties:
+    terms: [Potential]
+    binary_path: gmx_mpi
+
+step3_10_grompp_nvt:
+  tool: grompp
+  paths:
+    input_gro_path: dependency/step3_8_mdrun_min/output_gro_path
+    input_top_zip_path: dependency/step3_6_genion/output_top_zip_path
+    output_tpr_path: complex_nvt.tpr
+  properties:
+    simulation_type: nvt
+    binary_path: gmx_mpi
+    mdp:
+      nsteps: 5000
+      nstxout: 1000
+      Define: -DPOSRES
+
+step3_11_mdrun_nvt:
+  tool: mdrun
+  paths:
+    input_tpr_path: dependency/step3_10_grompp_nvt/output_tpr_path
+    output_trr_path: complex_nvt.trr
+    output_gro_path: complex_nvt.gro
+    output_edr_path: complex_nvt.edr
+    output_log_path: complex_nvt.log
+    output_cpt_path: complex_nvt.cpt
+  properties:
+    binary_path: gmx_mpi
+
+step3_12_gmx_energy_nvt:
+  tool: gmx_energy
+  paths:
+    input_energy_path: dependency/step3_11_mdrun_nvt/output_edr_path
+    output_xvg_path: complex_nvt_temp.xvg
+  properties:
+    terms: [Temperature]
+    binary_path: gmx_mpi
+
+step3_13_grompp_npt:
+  tool: grompp
+  paths:
+    input_gro_path: dependency/step3_11_mdrun_nvt/output_gro_path
+    input_top_zip_path: dependency/step3_6_genion/output_top_zip_path
+    input_mdp_path: 'file:inputs/md_eq_posre_charmm36m.mdp'
+    output_tpr_path: complex_npt.tpr
+  properties:
+    maxwarn: 1
+    binary_path: gmx_mpi
+    mdp:
+      nsteps: 5000
+      nstxout: 1000
+      Define: -DPOSRES
+
+step3_14_mdrun_npt:
+  tool: mdrun
+  paths:
+    input_tpr_path: dependency/step3_13_grompp_npt/output_tpr_path
+    output_trr_path: complex_npt.trr
+    output_gro_path: complex_npt.gro
+    output_edr_path: complex_npt.edr
+    output_log_path: complex_npt.log
+    output_cpt_path: complex_npt.cpt
+  properties:
+    binary_path: gmx_mpi
+
+step3_15_gmx_energy_npt:
+  tool: gmx_energy
+  paths:
+    input_energy_path: dependency/step3_14_mdrun_npt/output_edr_path
+    output_xvg_path: complex_npt_PD.xvg
+  properties:
+    terms: [Pressure, Density]
+
+# Not a building block: 3_AWH.py measures the antibody-antigen centre of mass
+# distance on the equilibrated complex and turns it into the edges of the AWH
+# sampling interval. The interface it opens the interval from is the paratope and
+# the epitope the docking restraints were built from.
+    binary_path: gmx_mpi
+
+step3_16_awh_interval:
+  paths:
+    input_interface_txt_path: dependency/step1_7_haddock_interface/output_txt_path
+  properties:
+    # How far past the equilibrated centre of mass distance the interval reaches, in
+    # angstrom, i.e. how far the complex is pushed towards dissociation
+    upper_margin: 2
+
+step3_17_awh_mdp:
+  paths:
+    input_mdp_template_path: 'file:inputs/md_awh_mult.mdp.in'
+    output_mdp_path: awh_md_mult.mdp
+
+# The two pull groups of the AWH coordinate, one per chain of the complex. The
+# 'selection' property is built by 3_AWH.py from the residue ordinals of each
+# chain, as neither the .gro nor the tpr carries chain identifiers.
+
+step3_18_make_ndx_chains:
+  tool: make_ndx
+  paths:
+    input_structure_path: dependency/step3_7_grompp_min/output_tpr_path
+    output_ndx_path: index2.ndx
+
+# One tpr per walker, written into 'walkers/walker_<i>/' as mdrun -multidir
+# expects. They are identical, the walkers only differ in the random state mdrun
+# gives them and share one bias through 'awh-share-multisim'.
+  properties:
+    binary_path: gmx_mpi
+
+step3_19_grompp_awh:
+  tool: grompp
+  paths:
+    input_gro_path: dependency/step3_14_mdrun_npt/output_gro_path
+    input_cpt_path: dependency/step3_14_mdrun_npt/output_cpt_path
+    input_top_zip_path: dependency/step3_6_genion/output_top_zip_path
+    output_tpr_path: walkers/complex_gppmd_mult.tpr
+  properties:
+    # One MPI process per walker, so this has to match the 'mpi_np' of the step below
+    n_walkers: 4
+    maxwarn: 1
+
+# 'input_tpr_path' and 'input_multifolder' point at the walkers folder written by
+# the step above, 3_AWH.py fills them in
+    binary_path: gmx_mpi
+    mdp:
+      nsteps: 5000
+      nstxout: 1000
+
+step3_20_mdrun_multidir:
+  tool: mdrun_multidir
+  paths:
+    output_multifolder: walkers_output
+  properties:
+    mpi_bin: mpirun
+    mpi_np: 4  # Keep in sync with the 'n_walkers' of the step above
+    binary_path: gmx_mpi
+
+step3_21_trjcat:
+  tool: trjcat
+  paths:
+    input_trj_zip_path: walkers_traj_cat.zip
+    output_trj_path: complex_md_awh_cat.xtc
+
+# 'cluster' is the only PBC treatment that keeps the antibody whole *and* leaves
+# the antigen in the same periodic image: 'res' splits the antibody across the
+# boundary in most frames of the concatenated trajectory, and 'whole' and 'mol'
+# repair one molecule at a time and leave the antigen looking detached. 'center'
+# must stay False, gmx_image only takes the cluster branch when centring is off.
+# 'input_top_path' is the tpr of one of the walkers, 3_AWH.py fills it in
+  properties:
+    binary_path: gmx_mpi
+
+step3_22_gmx_image_cluster:
+  tool: gmx_image
+  paths:
+    input_traj_path: dependency/step3_21_trjcat/output_trj_path
+    output_traj_path: complex_imaged_traj.trr
+  properties:
+    cluster_selection: Protein
+    output_selection: Protein
+    pbc: cluster
+    center: False
+
+# 'input_top_path' is the tpr of one of the walkers, 3_AWH.py fills it in
+    binary_path: gmx_mpi
+
+step3_23_gmx_trjconv_str_dry:
+  tool: gmx_trjconv_str
+  paths:
+    input_structure_path: dependency/step3_22_gmx_image_cluster/output_traj_path
+    output_str_path: complex_md_dry.gro
+  properties:
+    selection: Protein
+    binary_path: gmx_mpi
+
+step3_24_gmx_image_rot:
+  tool: gmx_image
+  paths:
+    input_traj_path: dependency/step3_22_gmx_image_cluster/output_traj_path
+    input_top_path: dependency/step3_23_gmx_trjconv_str_dry/output_str_path
+    output_traj_path: complex_imaged_traj_rot.trr
+  properties:
+    fit: rot+trans
+    center: True
+
+# The regions are located again for this system, the index file of the free MD run
+# addresses the wrong atoms here. The 'selection' property is built by 3_AWH.py,
+# and it adds an 'Antibody' group so the antigen stays out of the ensemble the
+# clustering writes.
+    binary_path: gmx_mpi
+
+step3_25_make_ndx:
+  tool: make_ndx
+  paths:
+    input_anarcii_pdb_path: dependency/step2_19_anarcii/output_pdb_path
+    output_ndx_path: complex_loop.ndx
+  properties:
+    binary_path: gmx_mpi
+
+step3_26_gmx_image_framework:
+  tool: gmx_image
+  paths:
+    input_traj_path: dependency/step3_22_gmx_image_cluster/output_traj_path
+    input_top_path: dependency/step3_23_gmx_trjconv_str_dry/output_str_path
+    input_index_path: dependency/step3_25_make_ndx/output_ndx_path
+    output_traj_path: complex_imaged_traj_fw.trr
+  properties:
+    fit: rot+trans
+    fit_selection: Framework_CA
+    output_selection: System
+    center: False
+    binary_path: gmx_mpi
+
+step3_27_gmx_cluster:
+  tool: gmx_cluster
+  paths:
+    input_structure_path: dependency/step3_23_gmx_trjconv_str_dry/output_str_path
+    input_traj_path: dependency/step3_26_gmx_image_framework/output_traj_path
+    input_index_path: dependency/step3_25_make_ndx/output_ndx_path
+    output_pdb_path: antibody_clusters.pdb
+  properties:
+    fit_selection: Loop_CA
+    # The antibody alone, the antigen has no business being in the ensemble that
+    # is docked against it
+    output_selection: Antibody
+    method: gromos
+    cutoff: 0.13
+    nofit: True
+    binary_path: gmx_mpi
+
+step3_28_clean_clusters:
+  paths:
+    output_pdb_path: antibody_clusters_clean.pdb
+
+step3_29_build_ensemble:
+  paths:
+    input_antibody_pdb_path: dependency/step1_0_prepare_antibody/output_pdb_path
+    output_zip_path: antibody_clusters_clean.zip
+    output_pdb_path: antibody_docking.pdb
+
+# Same inputs as the docking of the free-MD ensemble, see step2_26_haddock3_run
+
+step3_30_haddock3_run:
+  tool: haddock3_run
+  paths:
+    haddock_config_path: 'file:inputs/haddock_config.cfg'
+    input_antigen_pdb_path: dependency/step1_2_prepare_antigen/output_pdb_path
+    input_reference_pdb_path: dependency/step1_6_merge_reference_complex/output_pdb_path
+    input_ambig_tbl_path: dependency/step1_10_haddock3_actpass_to_ambig/output_tbl_path
+    input_unambig_tbl_path: dependency/step1_11_haddock3_restrain_bodies/output_tbl_path
+    input_haddock_wf_data: haddock_input
+    output_haddock_wf_data: haddock_output
+  properties:
+    disable_sandbox: True  # Do not copy the input data into the sandbox
+    # Override the sampling of haddock_config.cfg to make the docking run
+    # faster, as the notebook does. The three docking runs of the workflow
+    # must keep the same values to stay comparable.
+    cfg:
+      rigidbody.1:
+        sampling: 200
+      seletop.1:
+        select: 50

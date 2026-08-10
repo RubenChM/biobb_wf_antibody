@@ -1,12 +1,9 @@
 #!/usr/bin/env python3
 
-import re
 import time
 import argparse
-import glob
 import os
 import shutil
-import zipfile
 from biobb_common.configuration import settings
 from biobb_common.tools import file_utils as fu
 from biobb_pdb_tools.pdb_tools import biobb_pdb_tidy
@@ -25,26 +22,8 @@ from biobb_haddock.haddock_restraints.haddock3_passive_from_active import haddoc
 from biobb_haddock.haddock_restraints.haddock3_actpass_to_ambig import haddock3_actpass_to_ambig
 from biobb_haddock.haddock_restraints.haddock3_restrain_bodies import haddock3_restrain_bodies
 from biobb_haddock.haddock.haddock3_run import haddock3_run
-from utils import resolve_complex
-
-
-def pdb_tools_pipeline(inp_file, out_file, steps):
-    """Helper function to concatenate calls to pdb_tools"""
-    tmp_file = inp_file
-    for step, props in steps:
-        # Apply each step in the pipeline
-        step(input_file_path=tmp_file, output_file_path=out_file, properties=props)
-        tmp_file = 'tmp.pdb'
-        os.rename(out_file, tmp_file)
-    os.rename(tmp_file, out_file)
-
-
-def zip_pdb_files(pdb_paths, zip_file_path):
-    """Join several PDB files in a single ZIP file, as expected by pdb_merge"""
-    with zipfile.ZipFile(zip_file_path, 'w') as zipf:
-        for pdb_path in pdb_paths:
-            zipf.write(pdb_path, arcname=os.path.basename(pdb_path))
-    return zip_file_path
+from utils import (pdb_tools_pipeline, read_interface, report_execution,
+                   resolve_complex, zip_pdb_files)
 
 
 def prepare_antibody(input_pdb_path, output_pdb_path, chains, merge_paths, merge_prop,
@@ -127,21 +106,6 @@ def merge_structures(input_pdb_paths, output_pdb_path):
         pdb_tools_pipeline(zip_file_path, output_pdb_path, steps)
 
 
-def read_interface(interface_txt_path):
-    """Read the residues of each side of the interface reported by haddock_interface.
-
-    The report has one 'Chain <id>: [<residue>, ...]' line per chain.
-    """
-    interface = {}
-    with open(interface_txt_path) as f:
-        for line in f:
-            if not line.strip().startswith('Chain'):
-                continue
-            chain, residues = line.split(':', 1)
-            interface[chain.split()[1]] = [int(res) for res in re.findall(r'\d+', residues)]
-    return interface
-
-
 def haddock_workflow(global_log, global_prop, global_paths, complex_ids=None):
     """Subworkflow 1: antibody-antigen docking with HADDOCK3
 
@@ -151,16 +115,16 @@ def haddock_workflow(global_log, global_prop, global_paths, complex_ids=None):
     """
     if complex_ids is None:
         complex_ids = resolve_complex(global_prop["step1_0_prepare_antibody"])
-    global_log.info('  Antibody %s chains %s, antigen %s chains %s, reference %s chains %s + %s'
-                    % (complex_ids['antibody']['pdb_code'], complex_ids['antibody']['chains'],
-                       complex_ids['antigen']['pdb_code'], complex_ids['antigen']['chains'],
-                       complex_ids['reference']['pdb_code'],
-                       complex_ids['reference']['antibody_chains'],
-                       complex_ids['reference']['antigen_chains']))
+    reference, antibody, antigen = (complex_ids['reference'], complex_ids['antibody'],
+                                    complex_ids['antigen'])
+    global_log.info(f'  Antibody {antibody["pdb_code"]} chains {antibody["chains"]}, '
+                    f'antigen {antigen["pdb_code"]} chains {antigen["chains"]}, '
+                    f'reference {reference["pdb_code"]} chains '
+                    f'{reference["antibody_chains"]} + {reference["antigen_chains"]}')
     for name in ('reference', 'antibody', 'antigen'):
         if complex_ids[name]['model'] is not None:
-            global_log.info('  Model %s of the %s entry %s will be extracted'
-                            % (complex_ids[name]['model'], name, complex_ids[name]['pdb_code']))
+            global_log.info(f'  Model {complex_ids[name]["model"]} of the {name} entry '
+                            f'{complex_ids[name]["pdb_code"]} will be extracted')
 
     global_log.info("step1_0_prepare_antibody: Prepare the antibody structure")
     paths = global_paths["step1_0_prepare_antibody"]
@@ -206,8 +170,8 @@ def haddock_workflow(global_log, global_prop, global_paths, complex_ids=None):
     # as it can be different depending on the number of missing amino acids in the PDB structure.
     interface = read_interface(paths['output_txt_path'])
     paratope, epitope = interface['A'], interface['B']
-    global_log.info('  Paratope (antibody, chain A): %s' % ', '.join(map(str, paratope)))
-    global_log.info('  Epitope  (antigen,  chain B): %s' % ', '.join(map(str, epitope)))
+    global_log.info(f'  Paratope (antibody, chain A): {", ".join(map(str, paratope))}')
+    global_log.info(f'  Epitope  (antigen,  chain B): {", ".join(map(str, epitope))}')
 
     global_log.info("step1_8_antibody_actpass: Active (paratope) and passive residues of the antibody")
     antibody_actpass = global_paths["step1_8_antibody_actpass"]['output_actpass_path']
@@ -245,13 +209,23 @@ def haddock_workflow(global_log, global_prop, global_paths, complex_ids=None):
     # previous execution of this step are discarded
     if os.path.exists(paths['output_haddock_wf_data']):
         shutil.rmtree(paths['output_haddock_wf_data'])
+    # The configuration file and the properties of this step have to hold the same
+    # protocol as the two CDR-loop ensemble runs, otherwise the three are not comparable
     haddock3_run(**paths, properties=global_prop["step1_12_haddock3_run"])
 
 
+    # The MD (2_MD.py) and the AWH (3_AWH.py) subworkflows dock the CDR-loop
+    # ensembles they generate against the same antigen and with the same restraints,
+    # and the AWH one simulates the best model of this run, so everything they reuse
+    # is handed over here instead of being derived again
     return {
         'antibody_pdb_path': antibody_prep,
         'antigen_pdb_path': antigen_prep,
         'reference_pdb_path': reference_prep,
+        'ambig_tbl_path': ambig_tbl,
+        'unambig_tbl_path': unambig_tbl,
+        'paratope': paratope,
+        'epitope': epitope,
         'haddock_wf_data': paths['output_haddock_wf_data'],
     }
 
@@ -264,16 +238,7 @@ def main(config):
     global_paths = conf.get_paths_dic()
 
     haddock_workflow(global_log, global_prop, global_paths)
-
-    elapsed_time = time.time() - start_time
-    global_log.info('')
-    global_log.info('')
-    global_log.info('Execution successful: ')
-    global_log.info('  Workflow_path: %s' % conf.get_working_dir_path())
-    global_log.info('  Config File: %s' % config)
-    global_log.info('')
-    global_log.info('Elapsed time: %.1f minutes' % (elapsed_time/60))
-    global_log.info('')
+    report_execution(global_log, conf, config, start_time)
 
 
 if __name__ == '__main__':

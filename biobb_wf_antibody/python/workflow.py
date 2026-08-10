@@ -6,11 +6,13 @@ import importlib
 from biobb_common.configuration import settings
 from biobb_common.tools import file_utils as fu
 from biobb_io.api.pdb import pdb
-from utils import resolve_complex
+from utils import report_execution, resolve_complex
 
 # The subworkflow modules are named after their index, so they cannot be pulled
 # in with a plain import statement
 haddock = importlib.import_module('1_haddock')
+md = importlib.import_module('2_MD')
+awh = importlib.import_module('3_AWH')
 
 # The structures to dock are named by the 'reference', 'antibody' and 'antigen'
 # global properties of the configuration file, see utils.resolve_complex for how
@@ -19,32 +21,7 @@ haddock = importlib.import_module('1_haddock')
 # a configuration file with those three properties and its own working directory.
 
 
-def get_mdp_dicts(global_prop, global_log):
-    """Return the preparation and the production mdp settings.
-
-    They are defined once in the 'prep_mdp' and 'prod_mdp' sections of the
-    configuration file and shared by the MD and the AWH subworkflows, so they can
-    be handed over as properties to any grompp step.
-    """
-    prep_mdp_dict = {'mdp': dict(global_prop.get('prep_mdp', {}).get('mdp', {}))}
-    prod_mdp_dict = {'mdp': dict(global_prop.get('prod_mdp', {}).get('mdp', {}))}
-    report_mdp_dicts(global_log, prep_mdp_dict, prod_mdp_dict)
-    return prep_mdp_dict, prod_mdp_dict
-
-
-def report_mdp_dicts(global_log, prep_mdp_dict, prod_mdp_dict):
-    """Log how long the simulations defined by the mdp settings will run"""
-    for label, mdp_dict in [('Preparation', prep_mdp_dict), ('Production', prod_mdp_dict)]:
-        mdp = mdp_dict['mdp']
-        if mdp.get('nsteps') is None:
-            global_log.info('  %s simulations have no nsteps set' % label)
-            continue
-        # 'dt' is given in ps, GROMACS defaults to 1 fs when it is not set
-        global_log.info('  %s simulations will run for %g ns'
-                        % (label, mdp['nsteps'] * mdp.get('dt', 0.002) / 1000))
-
-
-def download_workflow(global_log, global_prop, global_paths, complex_ids):
+def download_pdbs(global_log, global_prop, global_paths, complex_ids):
     """Subworkflow 0: download the input structures from the PDB.
 
     The PDB code of every structure comes from the selected complex, so it is not
@@ -52,13 +29,12 @@ def download_workflow(global_log, global_prop, global_paths, complex_ids):
     handed over, they pick them up through the 'dependency/step0_*' paths.
     """
     structures = {}
-    for name, step, key in [('reference complex', 'step0_0_pdb_reference', 'reference'),
-                            ('antibody', 'step0_1_pdb_antibody', 'antibody'),
-                            ('antigen', 'step0_2_pdb_antigen', 'antigen')]:
+    for name, step, key in [('reference complex', 'step0_1_pdb_reference', 'reference'),
+                            ('antibody', 'step0_2_pdb_antibody', 'antibody'),
+                            ('antigen', 'step0_3_pdb_antigen', 'antigen')]:
         prop = global_prop[step]
         prop['pdb_code'] = complex_ids[key]['pdb_code']
-        global_log.info("%s: Download the %s structure %s from the PDB"
-                        % (step, name, prop['pdb_code']))
+        global_log.info(f"{step}: Download the {name} structure {prop['pdb_code']} from the PDB")
         pdb(**global_paths[step], properties=prop)
         structures[name] = global_paths[step]['output_pdb_path']
     return structures
@@ -70,31 +46,21 @@ def main(config):
     global_log, _ = fu.get_logs(path=conf.get_working_dir_path(), light_format=True)
     global_prop = conf.get_prop_dic(global_log=global_log)
     global_paths = conf.get_paths_dic()
-    # The structures to dock and the length of the simulations are both defined
-    # once in the configuration file and shared by every subworkflow
-    prep_mdp_dict, prod_mdp_dict = get_mdp_dicts(global_prop, global_log)
 
-    complex_ids = resolve_complex(global_prop['step0_0_pdb_reference'])
+    complex_ids = resolve_complex(global_prop['step0_0_pdb_codes'])
     # Subworkflow 0: input structures, shared by all the subworkflows
-    download_workflow(global_log, global_prop, global_paths, complex_ids)
+    download_pdbs(global_log, global_prop, global_paths, complex_ids)
     # Subworkflow 1: antibody-antigen docking with HADDOCK3
     haddock_out = haddock.haddock_workflow(global_log, global_prop, global_paths, complex_ids)
+    # Subworkflow 2: free MD of the unbound antibody, its CDR-loop clusters docked
+    md_out = md.md_workflow(global_log, global_prop, global_paths, complex_ids)
+    # Subworkflow 3: AWH-MD of the best docked complex, its CDR-loop clusters docked.
+    awh_out = awh.awh_workflow(global_log, global_prop, global_paths)
 
-    # TODO Subworkflow 2 (2_MD.py, step2_* sections): MD of the CDR clusters,
-    # its grompp steps take prep_mdp_dict and prod_mdp_dict
-    # TODO Subworkflow 3 (3_AWH.py, step3_* sections): AWH free energy
-    # calculation, its grompp steps take prep_mdp_dict and prod_mdp_dict
-
-    elapsed_time = time.time() - start_time
-    global_log.info('')
-    global_log.info('')
-    global_log.info('Execution successful: ')
-    global_log.info('  Workflow_path: %s' % conf.get_working_dir_path())
-    global_log.info('  Config File: %s' % config)
-    global_log.info('  HADDOCK3 workflow data: %s' % haddock_out['haddock_wf_data'])
-    global_log.info('')
-    global_log.info('Elapsed time: %.1f minutes' % (elapsed_time/60))
-    global_log.info('')
+    report_execution(global_log, conf, config, start_time, extra_lines=(
+        f'Baseline docking: {haddock_out["haddock_wf_data"]}',
+        f'MD  CDR ensemble docking: {md_out["haddock_wf_data"]}',
+        f'AWH CDR ensemble docking: {awh_out["haddock_wf_data"]}'))
 
 
 if __name__ == '__main__':

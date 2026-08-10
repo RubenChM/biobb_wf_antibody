@@ -1,0 +1,43 @@
+; From https://github.com/alevil-gmx/workflow_template/blob/main/workflow_template/data/input/md_eq_posre_charmm36m.mdp
+; 'define' is spelled 'Define' and 'ns_type' 'ns-type' on purpose, the biobb
+; grompp wrapper errors out on the other spelling (TODO: fix the wrapper).
+; 'nsteps' and 'nstxout' are overridden by the 'prep_mdp' section of workflow.yml.
+Define                   = -DPOSRES
+integrator               = md
+tinit                    = 0
+dt                       = 0.002
+nsteps                   = 500000   ; 1  ns
+comm_grps                = system
+nstxout                  = 0
+nstvout                  = 0
+nstfout                  = 0
+nstlog                   = 10000
+nstenergy                = 10000
+nstxout-compressed       = 10000
+compressed-x-grps        = system
+nstlist                  = 10
+ns-type                  = grid
+pbc                      = xyz
+;
+coulombtype              = PME
+rcoulomb                 = 1.2
+fourierspacing           = 0.15
+;
+vdwtype                  = Cut-off
+vdw_modifier             = Force-switch
+rvdw_switch              = 1.0
+rvdw                     = 1.2
+DispCorr                 = EnerPres
+;
+constraints              = h-bonds
+constraint_algorithm     = LINCS
+; new
+Pcoupl                   = Berendsen
+tau_p                    = 5.0
+ref_p                    = 1.0
+compressibility          = 4.5e-5
+refcoord-scaling         = all     ; to use with pos restrain
+Tcoupl                   = v-rescale
+tc-grps                  = system
+tau_t                    = 0.5
+ref_t                    = 298
