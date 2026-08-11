@@ -1,17 +1,6 @@
 from pathlib import Path
-import yaml
 
-# ============================================================================
-# The complex to work with: an index into the 'complexes' list of workflow.yml
-# ============================================================================
-
-case_id = 14
-
-WORKFLOW_CONFIG = Path(__file__).resolve().parent.parent / 'python' / 'workflow.yml'
-with open(WORKFLOW_CONFIG) as _f:
-    complexes = [tuple(ids) for ids in
-                 yaml.safe_load(_f)['global_properties']['complexes']]
-reference, antibody, antigen = complexes[case_id]
+reference, antibody, antigen = ("4G6M_HL:A" , "4G6K_HL", "4I1B_A")
 
 # ============================================================================
 # Downloaded structures and the working directory of the case
@@ -19,7 +8,7 @@ reference, antibody, antigen = complexes[case_id]
 
 data_path = Path('data/')
 base_dir = data_path / '0_base'
-out_path = data_path / f'case_{case_id}'
+out_path = data_path / f'case_9'
 
 
 def entry_pdb_path(identifier):
