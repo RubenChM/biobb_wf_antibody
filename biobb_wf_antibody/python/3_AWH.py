@@ -138,7 +138,7 @@ def walker_tpr_paths(output_tpr_path, n_walkers):
     return [os.path.join(walkers_dir, f'walker_{i}', tpr_name) for i in range(n_walkers)]
 
 
-def zip_walker_trajectories(walkers_output_dir, n_walkers, zip_path, traj_name='traj.trr'):
+def zip_walker_trajectories(walkers_output_dir, n_walkers, zip_path, traj_name='traj_comp.xtc'):
     """Join the trajectories of all the walkers in the ZIP file trjcat expects"""
     fu.create_dir(os.path.dirname(zip_path))
     with zipfile.ZipFile(zip_path, 'w') as zipf:
@@ -146,7 +146,7 @@ def zip_walker_trajectories(walkers_output_dir, n_walkers, zip_path, traj_name='
             walker_traj = os.path.join(walkers_output_dir, f'walker_{i}', traj_name)
             if not os.path.isfile(walker_traj):
                 raise FileNotFoundError(f'Walker {i} did not write {walker_traj}')
-            zipf.write(walker_traj, arcname=f'traj_{i}.trr')
+            zipf.write(walker_traj, arcname=f'traj_{i}.xtc')
     return zip_path
 
 

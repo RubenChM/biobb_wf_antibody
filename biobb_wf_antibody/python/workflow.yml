@@ -23,10 +23,7 @@ step0_0_pdb_codes:
   # interest, the ones after the colon being the antigen chains of the reference
   # complex, and a trailing '(<n>)' the model to extract from the entry. The PDB
   # codes of the step0_* sections and the chains and models of the step1_* ones are
-  # derived from these three identifiers, so they are not repeated here.
-  # To dock one of the complexes of the benchmark, do not edit them by hand: run
-  # array/launch_wf.py with the index of the complex and it writes a copy of this
-  # file with the three identifiers and a working directory of its own.
+  # derived from these three identifiers.
   properties:
     reference: 4G6M_HL:A
     antibody: 4G6K_HL
@@ -131,7 +128,14 @@ step1_12_haddock3_run:
     haddock_config_path: 'file:inputs/haddock_config.cfg'
     input_haddock_wf_data: haddock_input
     output_haddock_wf_data: haddock_output
-  # The configuration file and the overrides come from the shared 'haddock' section
+  properties:
+    disable_sandbox: True  # Do not copy the input data into the sandbox
+    # Override the sampling of haddock_config.cfg to make the run faster
+    cfg:
+      rigidbody.1:
+        sampling: 200
+      seletop.1:
+        select: 50
 
 # ============================================================================
 # Subworkflow 2 (2_MD.py): free MD of the unbound antibody, clustering of the
@@ -141,16 +145,6 @@ step1_12_haddock3_run:
 # and the antigen, the reference complex and the restraint tables of the docking
 # are the ones the baseline run of 1_haddock.py prepared.
 # ============================================================================
-  properties:
-    disable_sandbox: True  # Do not copy the input data into the sandbox
-    # Override the sampling of haddock_config.cfg to make the docking run
-    # faster, as the notebook does. The three docking runs of the workflow
-    # must keep the same values to stay comparable.
-    cfg:
-      rigidbody.1:
-        sampling: 200
-      seletop.1:
-        select: 50
 
 step2_0_biobb_pdb_selchain:
   tool: biobb_pdb_selchain
@@ -244,7 +238,7 @@ step2_9_mdrun_min:
   tool: mdrun
   paths:
     input_tpr_path: dependency/step2_8_grompp_min/output_tpr_path
-    output_trr_path: antibody_min.trr
+    output_xtc_path: antibody_min.xtc
     output_gro_path: antibody_min.gro
     output_edr_path: antibody_min.edr
     output_log_path: antibody_min.log
@@ -272,14 +266,14 @@ step2_11_grompp_npt:
     binary_path: gmx_mpi
     mdp:
       nsteps: 5000
-      nstxout: 1000
+      nstxout-compressed: 1000
       Define: -DPOSRES
 
 step2_12_mdrun_npt:
   tool: mdrun
   paths:
     input_tpr_path: dependency/step2_11_grompp_npt/output_tpr_path
-    output_trr_path: antibody_npt.trr
+    output_xtc_path: antibody_npt.xtc
     output_gro_path: antibody_npt.gro
     output_edr_path: antibody_npt.edr
     output_log_path: antibody_npt.log
@@ -309,13 +303,13 @@ step2_14_grompp_md:
     binary_path: gmx_mpi
     mdp:
       nsteps: 5000
-      nstxout: 1000
+      nstxout-compressed: 1000
 
 step2_15_mdrun_md:
   tool: mdrun
   paths:
     input_tpr_path: dependency/step2_14_grompp_md/output_tpr_path
-    output_trr_path: antibody_md.trr
+    output_xtc_path: antibody_md.xtc
     output_gro_path: antibody_md.gro
     output_edr_path: antibody_md.edr
     output_log_path: antibody_md.log
@@ -326,9 +320,9 @@ step2_15_mdrun_md:
 step2_16_gmx_image_nojump:
   tool: gmx_image
   paths:
-    input_traj_path: dependency/step2_15_mdrun_md/output_trr_path
+    input_traj_path: dependency/step2_15_mdrun_md/output_xtc_path
     input_top_path: dependency/step2_8_grompp_min/output_tpr_path
-    output_traj_path: antibody_imaged_traj.trr
+    output_traj_path: antibody_imaged_traj.xtc
   properties:
     center_selection: Protein
     output_selection: Protein
@@ -350,7 +344,7 @@ step2_18_gmx_image_rot:
   paths:
     input_traj_path: dependency/step2_16_gmx_image_nojump/output_traj_path
     input_top_path: dependency/step2_17_gmx_trjconv_str_dry/output_str_path
-    output_traj_path: antibody_imaged_traj_rot.trr
+    output_traj_path: antibody_imaged_traj_rot.xtc
   properties:
     fit: rot+trans
     center: True
@@ -392,7 +386,7 @@ step2_22_gmx_image_framework:
     input_traj_path: dependency/step2_16_gmx_image_nojump/output_traj_path
     input_top_path: dependency/step2_17_gmx_trjconv_str_dry/output_str_path
     input_index_path: dependency/step2_21_make_ndx/output_ndx_path
-    output_traj_path: antibody_imaged_traj_fw.trr
+    output_traj_path: antibody_imaged_traj_fw.xtc
   properties:
     fit: rot+trans
     fit_selection: Framework_CA
@@ -443,6 +437,14 @@ step2_26_haddock3_run:
     input_unambig_tbl_path: dependency/step1_11_haddock3_restrain_bodies/output_tbl_path
     input_haddock_wf_data: haddock_input
     output_haddock_wf_data: haddock_output
+  properties:
+    disable_sandbox: True  # Do not copy the input data into the sandbox
+    # Override the sampling of haddock_config.cfg to make the run faster
+    cfg:
+      rigidbody.1:
+        sampling: 200
+      seletop.1:
+        select: 50
 
 # ============================================================================
 # Subworkflow 3 (3_AWH.py): AWH-MD of the best docked complex, clustering of the
@@ -454,18 +456,6 @@ step2_26_haddock3_run:
 # subworkflow wrote, so step2_19_anarcii has to have run before this one.
 # ============================================================================
 
-# The complex to simulate is the best model of the baseline docking. HADDOCK3 gzips
-# the structures it writes, so it is decompressed into 'output_best_model_path' first
-  properties:
-    disable_sandbox: True  # Do not copy the input data into the sandbox
-    # Override the sampling of haddock_config.cfg to make the docking run
-    # faster, as the notebook does. The three docking runs of the workflow
-    # must keep the same values to stay comparable.
-    cfg:
-      rigidbody.1:
-        sampling: 200
-      seletop.1:
-        select: 50
 
 step3_0_fix_side_chain:
   tool: fix_side_chain
@@ -552,7 +542,7 @@ step3_8_mdrun_min:
   tool: mdrun
   paths:
     input_tpr_path: dependency/step3_7_grompp_min/output_tpr_path
-    output_trr_path: complex_min.trr
+    output_xtc_path: complex_min.xtc
     output_gro_path: complex_min.gro
     output_edr_path: complex_min.edr
     output_log_path: complex_min.log
@@ -579,14 +569,14 @@ step3_10_grompp_nvt:
     binary_path: gmx_mpi
     mdp:
       nsteps: 5000
-      nstxout: 1000
+      nstxout-compressed: 1000
       Define: -DPOSRES
 
 step3_11_mdrun_nvt:
   tool: mdrun
   paths:
     input_tpr_path: dependency/step3_10_grompp_nvt/output_tpr_path
-    output_trr_path: complex_nvt.trr
+    output_xtc_path: complex_nvt.xtc
     output_gro_path: complex_nvt.gro
     output_edr_path: complex_nvt.edr
     output_log_path: complex_nvt.log
@@ -615,14 +605,14 @@ step3_13_grompp_npt:
     binary_path: gmx_mpi
     mdp:
       nsteps: 5000
-      nstxout: 1000
+      nstxout-compressed: 1000
       Define: -DPOSRES
 
 step3_14_mdrun_npt:
   tool: mdrun
   paths:
     input_tpr_path: dependency/step3_13_grompp_npt/output_tpr_path
-    output_trr_path: complex_npt.trr
+    output_xtc_path: complex_npt.xtc
     output_gro_path: complex_npt.gro
     output_edr_path: complex_npt.edr
     output_log_path: complex_npt.log
@@ -684,13 +674,12 @@ step3_19_grompp_awh:
     # One MPI process per walker, so this has to match the 'mpi_np' of the step below
     n_walkers: 4
     maxwarn: 1
-
-# 'input_tpr_path' and 'input_multifolder' point at the walkers folder written by
-# the step above, 3_AWH.py fills them in
+  # 'input_tpr_path' and 'input_multifolder' point at the walkers folder written by
+  # the step above, 3_AWH.py fills them in
     binary_path: gmx_mpi
     mdp:
       nsteps: 5000
-      nstxout: 1000
+      nstxout-compressed: 1000
 
 step3_20_mdrun_multidir:
   tool: mdrun_multidir
@@ -706,13 +695,6 @@ step3_21_trjcat:
   paths:
     input_trj_zip_path: walkers_traj_cat.zip
     output_trj_path: complex_md_awh_cat.xtc
-
-# 'cluster' is the only PBC treatment that keeps the antibody whole *and* leaves
-# the antigen in the same periodic image: 'res' splits the antibody across the
-# boundary in most frames of the concatenated trajectory, and 'whole' and 'mol'
-# repair one molecule at a time and leave the antigen looking detached. 'center'
-# must stay False, gmx_image only takes the cluster branch when centring is off.
-# 'input_top_path' is the tpr of one of the walkers, 3_AWH.py fills it in
   properties:
     binary_path: gmx_mpi
 
@@ -720,14 +702,12 @@ step3_22_gmx_image_cluster:
   tool: gmx_image
   paths:
     input_traj_path: dependency/step3_21_trjcat/output_trj_path
-    output_traj_path: complex_imaged_traj.trr
+    output_traj_path: complex_imaged_traj.xtc
   properties:
     cluster_selection: Protein
     output_selection: Protein
     pbc: cluster
     center: False
-
-# 'input_top_path' is the tpr of one of the walkers, 3_AWH.py fills it in
     binary_path: gmx_mpi
 
 step3_23_gmx_trjconv_str_dry:
@@ -744,15 +724,10 @@ step3_24_gmx_image_rot:
   paths:
     input_traj_path: dependency/step3_22_gmx_image_cluster/output_traj_path
     input_top_path: dependency/step3_23_gmx_trjconv_str_dry/output_str_path
-    output_traj_path: complex_imaged_traj_rot.trr
+    output_traj_path: complex_imaged_traj_rot.xtc
   properties:
     fit: rot+trans
     center: True
-
-# The regions are located again for this system, the index file of the free MD run
-# addresses the wrong atoms here. The 'selection' property is built by 3_AWH.py,
-# and it adds an 'Antibody' group so the antigen stays out of the ensemble the
-# clustering writes.
     binary_path: gmx_mpi
 
 step3_25_make_ndx:
@@ -769,7 +744,7 @@ step3_26_gmx_image_framework:
     input_traj_path: dependency/step3_22_gmx_image_cluster/output_traj_path
     input_top_path: dependency/step3_23_gmx_trjconv_str_dry/output_str_path
     input_index_path: dependency/step3_25_make_ndx/output_ndx_path
-    output_traj_path: complex_imaged_traj_fw.trr
+    output_traj_path: complex_imaged_traj_fw.xtc
   properties:
     fit: rot+trans
     fit_selection: Framework_CA
@@ -786,8 +761,6 @@ step3_27_gmx_cluster:
     output_pdb_path: antibody_clusters.pdb
   properties:
     fit_selection: Loop_CA
-    # The antibody alone, the antigen has no business being in the ensemble that
-    # is docked against it
     output_selection: Antibody
     method: gromos
     cutoff: 0.13
@@ -805,7 +778,6 @@ step3_29_build_ensemble:
     output_pdb_path: antibody_docking.pdb
 
 # Same inputs as the docking of the free-MD ensemble, see step2_26_haddock3_run
-
 step3_30_haddock3_run:
   tool: haddock3_run
   paths:
@@ -818,9 +790,7 @@ step3_30_haddock3_run:
     output_haddock_wf_data: haddock_output
   properties:
     disable_sandbox: True  # Do not copy the input data into the sandbox
-    # Override the sampling of haddock_config.cfg to make the docking run
-    # faster, as the notebook does. The three docking runs of the workflow
-    # must keep the same values to stay comparable.
+      # Override the sampling of haddock_config.cfg to make the run faster
     cfg:
       rigidbody.1:
         sampling: 200

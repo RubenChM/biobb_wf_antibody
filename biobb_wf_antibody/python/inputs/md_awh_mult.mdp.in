@@ -3,13 +3,13 @@
 ; Template, not a usable mdp file: '{awh_min}' and '{awh_max}' are the edges of the
 ; AWH sampling interval in nm, and 3_AWH.py fills them in from the antibody-antigen
 ; centre of mass distance measured on the equilibrated system.
-; 'nsteps' and 'nstxout' are overridden by the 'prod_mdp' section of workflow.yml.
+; 'nsteps' and 'nstxout-compressed' are overridden by the 'prod_mdp' section of workflow.yml.
 integrator              = md
 dt                      = 0.002
-nsteps                  = 500000000 ;1000ns
-nstxtcout               = 50000
-nstvout                 = 50000
-nstfout                 = 50000
+nsteps                  = 50000000 ;100ns
+nstxout-compressed      = 5000
+nstvout                 = 0
+nstfout                 = 0
 nstcalcenergy           = 100
 nstenergy               = 1000
 nstlog                  = 1000

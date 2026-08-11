@@ -1,7 +1,6 @@
 ; From https://github.com/alevil-gmx/workflow_template/blob/main/workflow_template/data/input/md_eq_posre_charmm36m.mdp
 ; 'define' is spelled 'Define' and 'ns_type' 'ns-type' on purpose, the biobb
 ; grompp wrapper errors out on the other spelling (TODO: fix the wrapper).
-; 'nsteps' and 'nstxout' are overridden by the 'prep_mdp' section of workflow.yml.
 Define                   = -DPOSRES
 integrator               = md
 tinit                    = 0

@@ -49,13 +49,27 @@ def write_case_config(index, out_dir):
         config = yaml.safe_load(f)
 
     global_properties = config.setdefault('global_properties', {})
-    # The list of the benchmark belongs to the template: the copy names one complex
-    reference, antibody, antigen = COMPLEXES[index]
     global_properties['working_dir_path'] = case_dir
     global_properties['restart'] = True
-    global_properties['reference'] = reference
-    global_properties['antibody'] = antibody
-    global_properties['antigen'] = antigen
+
+    # The list of the benchmark belongs to this script: the copy of the template
+    # names one complex, through the three identifiers of 'step0_0_pdb_codes'
+    reference, antibody, antigen = COMPLEXES[index]
+    pdb_codes = config.setdefault('step0_0_pdb_codes', {})
+    properties = pdb_codes.setdefault('properties', {})
+    properties['reference'] = reference
+    properties['antibody'] = antibody
+    properties['antigen'] = antigen
+
+    # Drop the 'cfg' and 'mdp' overrides
+    for name, section in config.items():
+        if not isinstance(section, dict):
+            continue
+        tool = section.get('tool') or name
+        properties = section.get('properties') or {}
+        for override, tools in [('cfg', ('haddock3_run',)), ('mdp', ('grompp',))]:
+            if override in properties and tool in tools:
+                properties.pop(override)
 
     # 'file:<path>' paths are handed over to the building block as they are, so they
     # are relative to the current directory and not to the working one. Every one of
@@ -95,8 +109,8 @@ def main(index, out_dir, dry_run=False):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Run one complex of the benchmark")
     parser.add_argument('--index', type=int, default=os.environ.get('SLURM_ARRAY_TASK_ID'),
-                        help="index of the complex in the 'complexes' list of "
-                             "python/workflow.yml, defaults to $SLURM_ARRAY_TASK_ID")
+                        help="index of the complex in the COMPLEXES list of this script, "
+                             "defaults to $SLURM_ARRAY_TASK_ID")
     parser.add_argument('--out-dir', default='.',
                         help="folder the 'case_<index>' working directories are created "
                              "in, defaults to the current one")
