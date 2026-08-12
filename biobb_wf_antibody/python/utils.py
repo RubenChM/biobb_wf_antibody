@@ -11,13 +11,12 @@ of the run.
 
 The rest of this module holds the helpers that more than one subworkflow needs:
 the pdb_tools pipeline, the reading of the reference interface and the two things
-the GROMACS subworkflows share, the CHARMM36 force field and the CDR/framework
-definitions of the notebook.
+the GROMACS subworkflows share, the CHARMM36 force field and the index selection
+built from the CDR/framework definitions of cdr.py.
 """
 
 import glob
 import gzip
-import importlib.util
 import os
 import re
 import shutil
@@ -230,23 +229,6 @@ def ensure_force_field(ff_dir, url, force_field):
 # ============================================================================
 # CDR and framework regions
 # ============================================================================
-
-# The IMGT CDR/framework definitions and the mapping of those ranges onto a given
-# system live in the notebooks folder, next to the notebook that documents them.
-# They are loaded from there instead of being copied here, so the two stay in sync.
-CDR_MODULE_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                               'notebooks', 'cdr.py')
-
-
-def import_cdr():
-    """Import the notebooks/cdr.py module"""
-    if not os.path.isfile(CDR_MODULE_PATH):
-        raise FileNotFoundError(f'The CDR definitions are expected at {CDR_MODULE_PATH}')
-    spec = importlib.util.spec_from_file_location('cdr', CDR_MODULE_PATH)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
 
 def cdr_ndx_selection(cdr_ri, fr_ri, ri_selection, antibody_res=None):
     """make_ndx selection building the Loop / Framework groups of a system.

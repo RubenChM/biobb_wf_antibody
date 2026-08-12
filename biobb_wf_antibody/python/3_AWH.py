@@ -43,7 +43,8 @@ from biobb_gromacs.gromacs.solvate import solvate
 from biobb_gromacs.gromacs.trjcat import trjcat
 from biobb_model.model.fix_side_chain import fix_side_chain
 
-from utils import (cdr_ndx_selection, ensure_force_field, haddock_best_model, import_cdr,
+import cdr
+from utils import (cdr_ndx_selection, ensure_force_field, haddock_best_model,
                    read_interface, report_execution)
 
 # The clustering-to-docking stages are identical to the ones of the free MD run, so they
@@ -152,7 +153,6 @@ def zip_walker_trajectories(walkers_output_dir, n_walkers, zip_path, traj_name='
 
 def awh_workflow(global_log, global_prop, global_paths):
     """Subworkflow 3: AWH-MD of the complex and docking of its CDR-loop clusters"""
-    cdr = import_cdr()
 
     global_log.info('step3_0_fix_side_chain: Model the missing side chains of the docked complex')
     paths = dict(global_paths['step3_0_fix_side_chain'])

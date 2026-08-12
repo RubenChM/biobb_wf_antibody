@@ -47,7 +47,8 @@ from biobb_pdb_tools.pdb_tools import biobb_pdb_tidy
 from biobb_pdb_tools.pdb_tools.biobb_pdb_mkensemble import biobb_pdb_mkensemble
 from biobb_pdb_tools.pdb_tools.biobb_pdb_splitmodel import biobb_pdb_splitmodel
 
-from utils import (cdr_ndx_selection, ensure_force_field, import_cdr, pdb_tools_pipeline,
+import cdr
+from utils import (cdr_ndx_selection, ensure_force_field, pdb_tools_pipeline,
                    report_execution, resolve_complex)
 
 
@@ -146,7 +147,6 @@ def md_workflow(global_log, global_prop, global_paths, complex_ids=None):
     """
     if complex_ids is None:
         complex_ids = resolve_complex(global_prop['step2_0_biobb_pdb_selchain'])
-    cdr = import_cdr()
 
     global_log.info('step2_0_biobb_pdb_selchain: Extract the antibody chains '
                     f'{complex_ids["antibody"]["chains"]}')
