@@ -55,7 +55,7 @@ step0_3_pdb_antigen:
 
 step1_0_prepare_antibody:
   paths:
-    input_pdb_path: dependency/step0_2_pdb_reference/output_pdb_path
+    input_pdb_path: dependency/step0_2_pdb_antibody/output_pdb_path
     output_pdb_path: antibody_clean.pdb
 
 step1_1_biobb_pdb_merge_antibody:
@@ -66,7 +66,7 @@ step1_1_biobb_pdb_merge_antibody:
 
 step1_2_prepare_antigen:
   paths:
-    input_pdb_path: dependency/step0_3_pdb_reference/output_pdb_path
+    input_pdb_path: dependency/step0_3_pdb_antigen/output_pdb_path
     output_pdb_path: antigen_clean.pdb
 
 step1_3_prepare_reference_antibody:
@@ -150,7 +150,7 @@ step1_12_haddock3_run:
 step2_0_biobb_pdb_selchain:
   tool: biobb_pdb_selchain
   paths:
-    input_file_path: dependency/step0_2_pdb_reference/output_pdb_path
+    input_file_path: dependency/step0_2_pdb_antibody/output_pdb_path
     output_file_path: antibody_chains.pdb
 
 step2_1_fix_side_chain:

@@ -13,3 +13,4 @@ run/
 **.pyc
 awh*
 *sandbox*
+*.whl
