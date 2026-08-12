@@ -5,8 +5,8 @@
 #SBATCH --array=0-15
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=32
-#SBATCH --mail-type=END,FAIL
 #SBATCH --time=24:00:00
+#SBATCH --mail-type=END,FAIL,ARRAY_TASKS
 #SBATCH --mail-user=ruben.chaves@irbbarcelona.org
 
 # Launch with: sbatch --array=0-15%5 job_array.sh

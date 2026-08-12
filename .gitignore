@@ -4,6 +4,7 @@
 .vscode/
 **/data/
 **/output*/
+**/ff/
 log/
 log*
 **/.ipynb_checkpoints

@@ -164,7 +164,7 @@ step2_1_fix_side_chain:
 
 step2_2_charmm36:
   paths:
-    output_ff_path: ff
+    output_ff_path: inputs/ff
   properties:
     force_field: charmm36-jul2017
     url: https://mackerell.umaryland.edu/download.php?filename=CHARMM_ff_params_files/charmm36-jul2017.ff.tgz
