@@ -37,7 +37,7 @@ COMPLEXES = (
     ("3V6Z_AB:F",      "3V6F_AB", "3KXS_F"),
 )
 
-def write_case_config(index, out_dir):
+def write_case_config(index, out_dir, gmx_bin=None, mpi_bin=None):
     """Write the configuration file of one complex and return its path."""
     if not 0 <= index < len(COMPLEXES):
         raise SystemExit(f"Index {index} is out of range, only {len(COMPLEXES)} complexes defined.")
@@ -71,6 +71,18 @@ def write_case_config(index, out_dir):
             if override in properties and tool in tools:
                 properties.pop(override)
 
+    # The GROMACS and MPI launchers of the template are the bare 'gmx_mpi' and
+    # 'mpirun', the ones the modules of job_array.sh put on the PATH. Only the steps
+    # that already name a launcher are touched, so the sections of the other tools
+    # (HADDOCK3, the pdb tools, ANARCII) keep theirs.
+    for section in config.values():
+        if not isinstance(section, dict):
+            continue
+        properties = section.get('properties') or {}
+        for key, value in [('binary_path', gmx_bin), ('mpi_bin', mpi_bin)]:
+            if value and key in properties:
+                properties[key] = value
+
     # 'file:<path>' paths are handed over to the building block as they are, so they
     # are relative to the current directory and not to the working one. Every one of
     # them names a file of python/inputs (the HADDOCK3 configuration and the mdp
@@ -95,8 +107,8 @@ def write_case_config(index, out_dir):
     return case_dir, config_path
 
 
-def main(index, out_dir, dry_run=False, download_only=False):
-    case_dir, config_path = write_case_config(index, out_dir)
+def main(index, out_dir, dry_run=False, download_only=False, gmx_bin=None, mpi_bin=None):
+    case_dir, config_path = write_case_config(index, out_dir, gmx_bin, mpi_bin)
     if dry_run: return config_path
     # The workflow modules are imported instead of being run in another process, so
     # the task keeps the environment SLURM started it with
@@ -118,8 +130,15 @@ if __name__ == '__main__':
                         help="only write the configuration file of the complex")
     parser.add_argument('--download-only', '-d', action='store_true',
                         help="only download the input structures from the PDB")
-    
+    parser.add_argument('--gmx-bin', default=os.environ.get('GMX_BIN'),
+                        help="GROMACS binary of every GROMACS step, defaults to $GMX_BIN "
+                             "and, without it, to the 'gmx_mpi' of the template")
+    parser.add_argument('--mpi-bin', default=os.environ.get('MPI_BIN'),
+                        help="MPI launcher of the multidir step, defaults to $MPI_BIN "
+                             "and, without it, to the 'mpirun' of the template")
+
     args = parser.parse_args()
     if args.index is None:
         parser.error("--index is required when $SLURM_ARRAY_TASK_ID is not set")
-    main(int(args.index), args.out_dir, args.dry_run, download_only=args.download_only)
+    main(int(args.index), args.out_dir, args.dry_run, download_only=args.download_only,
+         gmx_bin=args.gmx_bin, mpi_bin=args.mpi_bin)
