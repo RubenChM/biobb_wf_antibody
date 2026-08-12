@@ -1,0 +1,34 @@
+[workspace]
+name = "biobb_wf_antibody"
+channels = ["conda-forge", "bioconda"]
+platforms = ["linux-64"]
+
+[dependencies]
+python = ">=3.10,<3.13"
+nglview = "<=4.0"
+ipywidgets = "*"
+jupyter = "*"
+plotly = "*"
+biobb_io = "*"
+
+# Gromacs
+biobb_analysis = ">=5.3.0"
+biobb_gromacs = ">=5.3.1"
+gromacs = { version = "==2026", build = "mpi*" }
+biobb_model = "*"
+mdanalysis = "*"
+# pytorch-gpu = "*"   # if not declared, anarcii installs pytorch-cpu
+# anarcii = "*"
+
+# Haddock
+biobb_haddock = ">=5.3.1"
+biobb_pdb_tools = ">=5.3.1"
+# ambertools = "*"
+
+# PMX
+# biobb_pmx = "*"
+# scipy = "==1.13"   # Fix?
+
+# For torsion/dihedral analysis
+deeptime = "*"
+mdtraj = "*"
