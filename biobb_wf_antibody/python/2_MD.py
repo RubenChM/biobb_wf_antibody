@@ -129,10 +129,6 @@ def stage_docking_input(paths, prop, antibody_pdb_path):
                       ('ambig.tbl', paths['input_ambig_tbl_path']),
                       ('unambig.tbl', paths['input_unambig_tbl_path'])]:
         shutil.copy2(src, os.path.join(paths['input_haddock_wf_data'], name))
-    # HADDOCK3 will not reuse an existing run directory, the results of a
-    # previous execution of this step are discarded
-    if os.path.exists(paths['output_haddock_wf_data']):
-        shutil.rmtree(paths['output_haddock_wf_data'])
     haddock3_run(haddock_config_path=paths['haddock_config_path'],
                  input_haddock_wf_data=paths['input_haddock_wf_data'],
                  output_haddock_wf_data=paths['output_haddock_wf_data'],

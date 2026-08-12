@@ -205,10 +205,6 @@ def haddock_workflow(global_log, global_prop, global_paths, complex_ids=None):
                       ('reference.pdb', reference_prep), ('ambig.tbl', ambig_tbl),
                       ('unambig.tbl', unambig_tbl)]:
         shutil.copy2(src, os.path.join(paths['input_haddock_wf_data'], name))
-    # HADDOCK3 will not reuse an existing run directory, the results of a
-    # previous execution of this step are discarded
-    if os.path.exists(paths['output_haddock_wf_data']):
-        shutil.rmtree(paths['output_haddock_wf_data'])
     # The configuration file and the properties of this step have to hold the same
     # protocol as the two CDR-loop ensemble runs, otherwise the three are not comparable
     haddock3_run(**paths, properties=global_prop["step1_12_haddock3_run"])

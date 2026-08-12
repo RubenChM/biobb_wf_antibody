@@ -1,6 +1,28 @@
 from pathlib import Path
 
-reference, antibody, antigen = ("4G6M_HL:A" , "4G6K_HL", "4I1B_A")
+case_id = 14
+complexes = (
+    # Reference         Antibody   Antigen
+    ("2VXT_HL:I",	   "2VXU_HL", "1J0S_A"),
+    ("2W9E_HL:A",	   "2W9D_HL", "1QM1_A"),
+    ("3EOA_LH:I",	   "3EO9_LH", "3F74_A"),
+    ("3HMX_LH:AB",	   "3HMW_LH", "1F45_AB"),
+    ("3MXW_LH:A",	   "3MXV_LH", "3M1N_A"),
+    ("5VPG_CD:A",	   "3RVT_CD", "3F5V_A"),
+    ("4DN4_LH:M",	   "4DN3_LH", "1DOL_A"),
+    ("4FQI_HL:ABEFCD", "4FQH_HL", "2FK0_ABCDEF"),
+    ("4G6J_HL:A",      "4G5Z_HL", "4I1B_A"),
+    ("4G6M_HL:A" ,     "4G6K_HL", "4I1B_A"),
+    ("4GXU_MN:ABEFCD", "4GXV_HL", "1RUZ_HIJKLM"),
+    # Medium
+    ("3EO1_AB:CF",     "3EO0_AB", "1TGJ_AB"),
+    ("3G6D_LH:A",      "3G6A_LH", "1IK0_A(10)"),
+    ("3HI6_XY:B",      "3HI5_HL", "1MJN_A"),
+    ("3L5W_LH:I",      "3L7E_LH", "1IK0_A(11)"),
+    ("3V6Z_AB:F",      "3V6F_AB", "3KXS_F"),
+)
+
+reference, antibody, antigen = complexes[case_id]
 
 # ============================================================================
 # Downloaded structures and the working directory of the case
@@ -8,7 +30,7 @@ reference, antibody, antigen = ("4G6M_HL:A" , "4G6K_HL", "4I1B_A")
 
 data_path = Path('data/')
 base_dir = data_path / '0_base'
-out_path = data_path / f'case_9'
+out_path = data_path / f'case_{case_id}'
 
 
 def entry_pdb_path(identifier):
