@@ -37,7 +37,7 @@ COMPLEXES = (
     ("3V6Z_AB:F",      "3V6F_AB", "3KXS_F"),
 )
 
-def write_case_config(index, out_dir, gmx_bin=None, mpi_bin=None):
+def write_case_config(index, out_dir, gmx_bin=None, mpi_bin=None, ncores=None):
     """Write the configuration file of one complex and return its path."""
     if not 0 <= index < len(COMPLEXES):
         raise SystemExit(f"Index {index} is out of range, only {len(COMPLEXES)} complexes defined.")
@@ -70,6 +70,12 @@ def write_case_config(index, out_dir, gmx_bin=None, mpi_bin=None):
         for override, tools in [('cfg', ('haddock3_run',)), ('mdp', ('grompp',))]:
             if override in properties and tool in tools:
                 properties.pop(override)
+        # The 'ncores' of inputs/haddock_config.cfg is the one of a workstation, on the
+        # cluster the docking gets the cores SLURM reserved for the task. A plain key
+        # of 'cfg' is a top-level HADDOCK3 parameter, not a section of the run
+        if ncores and tool == 'haddock3_run':
+            section.setdefault('properties', properties)
+            properties.setdefault('cfg', {})['ncores'] = int(ncores)
 
     # The GROMACS and MPI launchers of the template are the bare 'gmx_mpi' and
     # 'mpirun', the ones the modules of job_array.sh put on the PATH. Only the steps
@@ -107,8 +113,9 @@ def write_case_config(index, out_dir, gmx_bin=None, mpi_bin=None):
     return case_dir, config_path
 
 
-def main(index, out_dir, dry_run=False, download_only=False, gmx_bin=None, mpi_bin=None):
-    case_dir, config_path = write_case_config(index, out_dir, gmx_bin, mpi_bin)
+def main(index, out_dir, dry_run=False, download_only=False, gmx_bin=None, mpi_bin=None,
+         ncores=None):
+    case_dir, config_path = write_case_config(index, out_dir, gmx_bin, mpi_bin, ncores)
     if dry_run: return config_path
     # The workflow modules are imported instead of being run in another process, so
     # the task keeps the environment SLURM started it with
@@ -136,9 +143,13 @@ if __name__ == '__main__':
     parser.add_argument('--mpi-bin', default=os.environ.get('MPI_BIN'),
                         help="MPI launcher of the multidir step, defaults to $MPI_BIN "
                              "and, without it, to the 'mpirun' of the template")
+    parser.add_argument('--ncores', type=int, default=os.environ.get('SLURM_CPUS_PER_TASK'),
+                        help="cores of the HADDOCK3 dockings, defaults to "
+                             "$SLURM_CPUS_PER_TASK and, without it, to the 'ncores' of "
+                             "inputs/haddock_config.cfg")
 
     args = parser.parse_args()
     if args.index is None:
         parser.error("--index is required when $SLURM_ARRAY_TASK_ID is not set")
     main(int(args.index), args.out_dir, args.dry_run, download_only=args.download_only,
-         gmx_bin=args.gmx_bin, mpi_bin=args.mpi_bin)
+         gmx_bin=args.gmx_bin, mpi_bin=args.mpi_bin, ncores=args.ncores)

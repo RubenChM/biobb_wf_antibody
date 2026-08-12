@@ -26,5 +26,6 @@ mkdir -p array_logs
 
 # One complex of the 'complexes' list of python/workflow.yml per array task, every
 # one of them in its own 'results/case_<index>' working directory
-python launch_wf.py --index "$SLURM_ARRAY_TASK_ID" --out-dir results --gmx-bin "$GMX_BIN" --mpi-bin "$MPI_BIN"
+python launch_wf.py --index "$SLURM_ARRAY_TASK_ID" --out-dir results \
+    --gmx-bin "$GMX_BIN" --mpi-bin "$MPI_BIN" --ncores "$SLURM_CPUS_PER_TASK"
 
