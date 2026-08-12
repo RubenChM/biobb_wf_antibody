@@ -2,6 +2,7 @@ global_properties:
   working_dir_path: output
   restart: True
   can_write_console_log: False
+  restart: True
 
 # Single configuration file for the whole workflow. Every step is named
 # 'step<subworkflow index>_<step index>_<step name>', so the sections of each
@@ -34,12 +35,12 @@ step0_1_pdb_reference:
   paths:
     output_pdb_path: reference.pdb
 
-step0_2_pdb_reference:
+step0_2_pdb_antibody:
   tool: pdb
   paths:
     output_pdb_path: antibody.pdb
 
-step0_3_pdb_reference:
+step0_3_pdb_antigen:
   tool: pdb
   paths:
     output_pdb_path: antigen.pdb

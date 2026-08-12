@@ -40,7 +40,7 @@ def download_pdbs(global_log, global_prop, global_paths, complex_ids):
     return structures
 
 
-def main(config):
+def main(config, download_only=False):
     start_time = time.time()
     conf = settings.ConfReader(config)
     global_log, _ = fu.get_logs(path=conf.get_working_dir_path(), light_format=True)
@@ -50,6 +50,8 @@ def main(config):
     complex_ids = resolve_complex(global_prop['step0_0_pdb_codes'])
     # Subworkflow 0: input structures, shared by all the subworkflows
     download_pdbs(global_log, global_prop, global_paths, complex_ids)
+    if download_only:
+        return
     # Subworkflow 1: antibody-antigen docking with HADDOCK3
     haddock_out = haddock.haddock_workflow(global_log, global_prop, global_paths, complex_ids)
     # Subworkflow 2: free MD of the unbound antibody, its CDR-loop clusters docked
@@ -66,5 +68,7 @@ def main(config):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Antibody-antigen binding affinity workflow")
     parser.add_argument('--config', '-c', required=True)
+    parser.add_argument('--download-only', '-d', action='store_true',
+                        help="only download the input structures from the PDB")
     args = parser.parse_args()
-    main(args.config)
+    main(args.config, download_only=args.download_only)

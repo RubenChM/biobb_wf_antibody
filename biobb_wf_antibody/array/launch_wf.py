@@ -95,14 +95,14 @@ def write_case_config(index, out_dir):
     return case_dir, config_path
 
 
-def main(index, out_dir, dry_run=False):
+def main(index, out_dir, dry_run=False, download_only=False):
     case_dir, config_path = write_case_config(index, out_dir)
     if dry_run: return config_path
     # The workflow modules are imported instead of being run in another process, so
     # the task keeps the environment SLURM started it with
     sys.path.insert(0, PYTHON_DIR)
     import workflow
-    workflow.main(config_path)
+    workflow.main(config_path, download_only=download_only)
     return config_path
 
 
@@ -116,7 +116,10 @@ if __name__ == '__main__':
                              "in, defaults to the current one")
     parser.add_argument('--dry-run', action='store_true',
                         help="only write the configuration file of the complex")
+    parser.add_argument('--download-only', '-d', action='store_true',
+                        help="only download the input structures from the PDB")
+    
     args = parser.parse_args()
     if args.index is None:
         parser.error("--index is required when $SLURM_ARRAY_TASK_ID is not set")
-    main(int(args.index), args.out_dir, args.dry_run)
+    main(int(args.index), args.out_dir, args.dry_run, download_only=args.download_only)
