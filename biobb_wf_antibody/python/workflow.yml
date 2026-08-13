@@ -159,12 +159,12 @@ step2_1_fix_side_chain:
     input_pdb_path: dependency/step2_0_biobb_pdb_selchain/output_file_path
     output_pdb_path: antibody_fixed.pdb
 
-# Not a building block: the force field is downloaded once and the directory is
-# handed to every pdb2gmx and grompp step below as its GMXLIB
+# Not a building block: the force field lives in python/inputs/ff and the directory
+# is handed to every pdb2gmx and grompp step below as its GMXLIB.
 
 step2_2_charmm36:
   paths:
-    output_ff_path: inputs/ff
+    output_ff_path: 'file:inputs/ff'
   properties:
     force_field: charmm36-jul2017
     url: https://mackerell.umaryland.edu/download.php?filename=CHARMM_ff_params_files/charmm36-jul2017.ff.tgz
@@ -239,7 +239,6 @@ step2_9_mdrun_min:
   tool: mdrun
   paths:
     input_tpr_path: dependency/step2_8_grompp_min/output_tpr_path
-    output_xtc_path: antibody_min.xtc
     output_gro_path: antibody_min.gro
     output_edr_path: antibody_min.edr
     output_log_path: antibody_min.log
@@ -467,7 +466,7 @@ step3_0_fix_side_chain:
 
 step3_1_charmm36:
   paths:
-    output_ff_path: dependency/step2_2_charmm36/output_ff_path
+    output_ff_path: 'file:inputs/ff'
   properties:
     force_field: charmm36-jul2017
     url: https://mackerell.umaryland.edu/download.php?filename=CHARMM_ff_params_files/charmm36-jul2017.ff.tgz

@@ -82,7 +82,6 @@ input_mdp_min = MD_dir / "emin-charmm.mdp"
 input_mdp_eq = MD_dir / "md_eq_posre_charmm36m.mdp"
 input_mdp_md = MD_dir / "md_charmm36m.mdp"
 MD_output_gppmin_tpr = MD_dir / 'antibody_gppmin.tpr'
-MD_output_min_xtc = MD_dir / 'antibody_min.xtc'
 MD_output_min_gro = MD_dir / 'antibody_min.gro'
 MD_output_min_edr = MD_dir / 'antibody_min.edr'
 MD_output_min_log = MD_dir / 'antibody_min.log'
