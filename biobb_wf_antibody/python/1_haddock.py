@@ -23,7 +23,7 @@ from biobb_haddock.haddock_restraints.haddock3_actpass_to_ambig import haddock3_
 from biobb_haddock.haddock_restraints.haddock3_restrain_bodies import haddock3_restrain_bodies
 from biobb_haddock.haddock.haddock3_run import haddock3_run
 from utils import (pdb_tools_pipeline, read_interface, report_execution,
-                   resolve_complex, zip_pdb_files)
+                   resolve_complex, zip_pdb_files, map_contact_residues)
 
 
 def prepare_antibody(input_pdb_path, output_pdb_path, chains, merge_paths, merge_prop,
@@ -82,13 +82,13 @@ def prepare_antigen(input_pdb_path, output_pdb_path, chains, model=None):
             (biobb_pdb_selmodel.biobb_pdb_selmodel, {'models': model}),   # 0. Keep only the requested model
             (biobb_pdb_tidy.biobb_pdb_tidy, {'strict': True}),            # 1. Adhere to the format specifications
             (biobb_pdb_selchain.biobb_pdb_selchain, {'chains': chains}),  # 2. Extract chains
-            (biobb_pdb_reres.biobb_pdb_reres,         {'number': 1}),     # 3. Renumber the residues starting from 1
             (biobb_pdb_chain.biobb_pdb_chain, {'chain': 'B'}),            # 4. Modify the chain identifier column
             (biobb_pdb_chainxseg.biobb_pdb_chainxseg, {}),                # 5. Swap the segment identifier for the chain identifier
             (biobb_pdb_delhetatm.biobb_pdb_delhetatm, {}),                # 6. Remove all HETATM records
             (biobb_pdb_fixinsert.biobb_pdb_fixinsert, {}),                # 7. Delete insertion codes and shift residue numbering
             (biobb_pdb_selaltloc.biobb_pdb_selaltloc, {}),                # 8. Select altloc labels (highest occupancy)
             (biobb_pdb_keepcoord.biobb_pdb_keepcoord, {}),                # 9. Remove all non-coordinate records
+            (biobb_pdb_reres.biobb_pdb_reres,         {'number': 1}),     # 3. Renumber the residues starting from 1
             (biobb_pdb_tidy.biobb_pdb_tidy, {'strict': True})             # 10. Adhere to the format specifications
         ]
         pdb_tools_pipeline(input_pdb_path, output_pdb_path, steps)
@@ -166,11 +166,18 @@ def haddock_workflow(global_log, global_prop, global_paths, complex_ids=None):
     global_log.info("step1_7_haddock_interface: Get the contact residues in the interface of the reference complex")
     paths = global_paths["step1_7_haddock_interface"]
     haddock_interface(**paths, properties=global_prop["step1_7_haddock_interface"])
-    # The paratope and the epitope are read from the reference complex interface
-    # TODO: align reference sequence with ag and ab to check if the numbering is correct
-    # as it can be different depending on the number of missing amino acids in the PDB structure.
+    # Reference and docking structures can have different missing residues.
     interface = read_interface(paths['output_txt_path'])
-    paratope, epitope = interface['A'], interface['B']
+    mapped_contacts = {}
+    for chain, name, target in (('A', 'Antibody', antibody_prep),
+                                ('B', 'Antigen', antigen_prep)):
+        contacts, alignment, contact_map = map_contact_residues(
+            reference_prep, target, chain, ', '.join(map(str, interface[chain])))
+        mapped_contacts[chain] = [int(resid) for resid in contacts.split(',')]
+        global_log.info(f'  {name}: reference (target row) -> docking input (query row)')
+        global_log.info(str(alignment))
+        global_log.info(f'  Contact mapping (reference resid -> input resid; None = missing): {contact_map}')
+    paratope, epitope = mapped_contacts['A'], mapped_contacts['B']
     global_log.info(f'  Paratope (antibody, chain A): {", ".join(map(str, paratope))}')
     global_log.info(f'  Epitope  (antigen,  chain B): {", ".join(map(str, epitope))}')
 

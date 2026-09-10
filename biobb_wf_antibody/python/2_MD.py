@@ -49,7 +49,7 @@ from biobb_pdb_tools.pdb_tools.biobb_pdb_splitmodel import biobb_pdb_splitmodel
 
 import cdr
 from utils import (cdr_ndx_selection, ensure_force_field, pdb_tools_pipeline,
-                   report_execution, resolve_complex)
+                   report_execution, resolve_complex, check_ndx_groups)
 
 
 def clean_cluster_representatives(input_pdb_path, output_pdb_path):
@@ -90,27 +90,6 @@ def build_docking_ensemble(cluster_pdb_path, experimental_pdb_path, zip_path, ou
                    arcname=f'zz_{os.path.basename(experimental_pdb_path)}')
     # 3. Build the multi-model (ensemble) PDB file
     biobb_pdb_mkensemble(input_file_path=zip_path, output_file_path=output_pdb_path)
-
-
-def check_ndx_groups(global_log, structure_path, ndx_path, expected):
-    """Check that the index groups landed on the atoms they are meant to.
-
-    An index file is a list of absolute atom numbers, so a group built from the
-    wrong structure resolves to a plausible-looking but wrong selection instead of
-    failing. 'expected' gives the number of atoms every group must have.
-    """
-    groups = cdr.read_ndx(ndx_path)
-    universe = mda.Universe(str(structure_path))
-    for name, n_atoms in expected.items():
-        selection = universe.atoms[np.array(groups[name]) - 1]
-        global_log.info(f'  [{name}] {selection.n_atoms} atoms / '
-                        f'{selection.n_residues} residues, '
-                        f'C-alpha only: {set(selection.names) == {"CA"}}')
-        if selection.n_atoms != n_atoms:
-            raise ValueError(f'{name}: expected {n_atoms} atoms, got {selection.n_atoms}')
-        if set(selection.names) != {'CA'}:
-            raise ValueError(f'{name}: not all the selected atoms are C-alpha')
-    return groups
 
 
 def stage_docking_input(paths, prop, antibody_pdb_path):

@@ -68,19 +68,6 @@ def ri_selection(indices):
     return ' | '.join(f'ri {r}' for r in _runs(indices))
 
 
-def read_ndx(ndx_path):
-    """Parse an index file into {group name: [1-based atom numbers]}."""
-    groups, current = {}, None
-    for line in Path(ndx_path).read_text().splitlines():
-        line = line.strip()
-        if line.startswith('['):
-            current = line.strip('[] ').strip()
-            groups[current] = []
-        elif current and line:
-            groups[current] += [int(x) for x in line.split()]
-    return groups
-
-
 # ---------------------------------------------------------------------------------------------
 # Kept for reference: clustering the loops with `cpptraj cluster` instead of `gmx cluster`.
 #

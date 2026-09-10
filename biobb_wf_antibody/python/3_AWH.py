@@ -46,14 +46,13 @@ from biobb_model.model.fix_side_chain import fix_side_chain
 import cdr
 from utils import (cdr_ndx_selection, ensure_force_field, haddock_best_model,
                    read_interface, report_execution, resolve_complex, pull_group_com,
-                   recover_antibody_chain_ids)
+                   recover_antibody_chain_ids, check_ndx_groups, map_contact_residues)
 
 # The clustering-to-docking stages are identical to the ones of the free MD run, so they
 # are reused instead of being written again. The subworkflow modules are named after
 # their index, so they cannot be pulled in with a plain import statement
 _md = importlib.import_module('2_MD')
 build_docking_ensemble = _md.build_docking_ensemble
-check_ndx_groups = _md.check_ndx_groups
 clean_cluster_representatives = _md.clean_cluster_representatives
 stage_docking_input = _md.stage_docking_input
 
@@ -247,6 +246,13 @@ def awh_workflow(global_log, global_prop, global_paths, complex_ids=None):
     prop = global_prop['step3_16_awh_interval']
     # The paratope and the epitope are the ones the docking restraints were built from
     interface = read_interface(paths['input_interface_txt_path'])
+    reference_prep = global_paths['step1_6_merge_reference_complex']['output_pdb_path']
+    for chain, step in (('A', 'step1_0_prepare_antibody'),
+                        ('B', 'step1_2_prepare_antigen')):
+        contacts, _, _ = map_contact_residues(
+            reference_prep, global_paths[step]['output_pdb_path'], chain,
+            ', '.join(map(str, interface[chain])))
+        interface[chain] = [int(resid) for resid in contacts.split(',')]
     awh_min, awh_max = awh_interval(global_log, fixed_pdb, npt_gro,
                                     interface['A'], interface['B'],
                                     prop['upper_margin'])
@@ -366,7 +372,7 @@ def awh_workflow(global_log, global_prop, global_paths, complex_ids=None):
     make_ndx(input_structure_path=dry_gro, output_ndx_path=paths['output_ndx_path'],
              properties=prop)
     loop_ndx = paths['output_ndx_path']
-    groups = check_ndx_groups(global_log, dry_gro, loop_ndx, cdr.read_ndx,
+    groups = check_ndx_groups(global_log, dry_gro, loop_ndx,
                               {'Loop_CA': len(cdr_ri), 'Framework_CA': len(fr_ri)})
     universe = mda.Universe(str(dry_gro))
     antibody = universe.atoms[np.array(groups['Antibody']) - 1]

@@ -15,19 +15,23 @@ the GROMACS subworkflows share, the CHARMM36 force field and the index selection
 built from the CDR/framework definitions of cdr.py.
 """
 
-import glob
-import gzip
-import itertools
 import os
 import re
-import shutil
-import tarfile
+import glob
+import gzip
 import time
-import urllib.request
+import shutil
 import zipfile
-import MDAnalysis as mda
-from MDAnalysis.lib.distances import minimize_vectors
+import tarfile
+import warnings
+import itertools
+import urllib.request
 import numpy as np
+import MDAnalysis as mda
+
+from pathlib import Path
+from Bio.Align import PairwiseAligner
+from MDAnalysis.lib.distances import minimize_vectors
 
 
 def parse_identifier(identifier):
@@ -152,6 +156,55 @@ def zip_pdb_files(pdb_paths, zip_file_path):
             basename = os.path.basename(pdb_path)
             zipf.write(pdb_path, arcname=f'{index:04d}_{basename}')
     return zip_file_path
+
+
+def map_contact_residues(reference_pdb, target_pdb, chain, contacts):
+    """Align observed residues and map reference contacts to cleaned PDB numbers."""
+    selection = f"protein and chainID {chain}"
+    ref_res = mda.Universe(reference_pdb).select_atoms(selection).residues
+    target_res = mda.Universe(target_pdb).select_atoms(selection).residues
+    if not len(ref_res) or not len(target_res):
+        raise ValueError(f"Chain {chain}: no protein residues to align")
+    for residues in (ref_res, target_res):
+        if len(set(residues.resids)) != len(residues) or any(residues.icodes):
+            raise ValueError("Use cleaned PDBs with unique residue numbers and no insertion codes")
+    contact_ids = [int(resid) for resid in contacts.replace(',', ' ').split()]
+    unknown = sorted(set(contact_ids) - set(ref_res.resids))
+    if unknown:
+        raise ValueError(f"Chain {chain}: contacts absent from reference PDB: {unknown}; regenerate the interface")
+
+    # Align coordinate sequences: missing residues become gaps, not numbering offsets.
+    aligner = PairwiseAligner(
+        mode='global', match_score=2, mismatch_score=-1,
+        open_gap_score=-10, extend_gap_score=-0.5,
+    )
+    alignments = aligner.align(
+        ref_res.sequence(format='string'), target_res.sequence(format='string'),
+    )
+    print(f"Chain {chain}: {len(alignments)} equivalent sequence alignments found")
+    if len(alignments) > 1000:
+        raise ValueError(f"Chain {chain}: too many equivalent alignments; select corresponding chains first")
+    contact_maps = []
+    for alignment in alignments:
+        # Alignment indices are zero-based sequence positions; HADDOCK needs PDB resids.
+        residue_map = {
+            int(ref_res[i].resid): int(target_res[j].resid)
+            for i, j in alignment.indices.T if i >= 0 and j >= 0
+        }
+        contact_maps.append({resid: residue_map.get(resid) for resid in contact_ids})
+    ambiguous = [resid for resid in contact_ids
+                 if len({mapping[resid] for mapping in contact_maps}) > 1]
+    if ambiguous:
+        raise ValueError(f"Chain {chain}: equally scoring alignments disagree on contacts {ambiguous}; "
+                         "select corresponding chains before mapping")
+    contact_map = contact_maps[0]
+    missing = [resid for resid, target in contact_map.items() if target is None]
+    if missing:
+        warnings.warn(f"Chain {chain}: reference contacts missing in target and omitted: {missing}")
+    mapped_contacts = sorted({resid for resid in contact_map.values() if resid is not None})
+    if not mapped_contacts:
+        raise ValueError(f"Chain {chain}: no reference contacts could be mapped to the target")
+    return ', '.join(map(str, mapped_contacts)), alignments[0], contact_map
 
 
 def read_interface(interface_txt_path):
@@ -330,6 +383,40 @@ def cdr_ndx_selection(cdr_ri, fr_ri, ri_selection, antibody_res=None):
     if antibody_res is not None:
         selection += f'\nri 1-{antibody_res}\nname 14 Antibody'
     return selection
+
+
+def read_ndx(ndx_path):
+    """Parse an index file into {group name: [1-based atom numbers]}."""
+    groups, current = {}, None
+    for line in Path(ndx_path).read_text().splitlines():
+        line = line.strip()
+        if line.startswith('['):
+            current = line.strip('[] ').strip()
+            groups[current] = []
+        elif current and line:
+            groups[current] += [int(x) for x in line.split()]
+    return groups
+
+
+def check_ndx_groups(global_log, structure_path, ndx_path, expected):
+    """Check that the index groups landed on the atoms they are meant to.
+
+    An index file is a list of absolute atom numbers, so a group built from the
+    wrong structure resolves to a plausible-looking but wrong selection instead of
+    failing. 'expected' gives the number of atoms every group must have.
+    """
+    groups = read_ndx(ndx_path)
+    universe = mda.Universe(str(structure_path))
+    for name, n_atoms in expected.items():
+        selection = universe.atoms[np.array(groups[name]) - 1]
+        global_log.info(f'  [{name}] {selection.n_atoms} atoms / '
+                        f'{selection.n_residues} residues, '
+                        f'C-alpha only: {set(selection.names) == {"CA"}}')
+        if selection.n_atoms != n_atoms:
+            raise ValueError(f'{name}: expected {n_atoms} atoms, got {selection.n_atoms}')
+        if set(selection.names) != {'CA'}:
+            raise ValueError(f'{name}: not all the selected atoms are C-alpha')
+    return groups
 
 
 # ============================================================================

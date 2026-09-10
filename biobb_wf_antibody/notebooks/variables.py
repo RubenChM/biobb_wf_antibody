@@ -48,7 +48,7 @@ reference_pdb_src = str(entry_pdb_path(reference))
 
 dock_dir = out_path / '1_dock'
 dock_inp = dock_dir / 'input'
-antibody_pdb_clean = str(dock_inp / 'antibodyn.pdb')
+antibody_pdb_clean = str(dock_inp / 'antibody.pdb')
 antigen_pdb_clean = str(dock_inp / 'antigen.pdb')
 reference_pdb_antibody = str(dock_dir / 'reference_antibody.pdb')
 reference_pdb_antigen = str(dock_dir / 'reference_antigen.pdb')
@@ -154,7 +154,7 @@ AWH_output_npt_edr = AWH_dir / 'complex_npt.edr'
 AWH_output_npt_log = AWH_dir / 'complex_npt.log'
 AWH_output_npt_cpt = AWH_dir / 'complex_npt.cpt'
 AWH_output_npt_pd_xvg = AWH_dir / 'complex_npt_PD.xvg'
-AWH_input_ndx = str(AWH_dir / "index2.ndx")
+AWH_chains_ndx = str(AWH_dir / "chains.ndx")
 input_mdp_awh_mult = AWH_dir / "awh_md_mult.mdp"
 n_walkers = 4
 walker_dir = AWH_dir / 'walkers' / f"walker_{n_walkers - 1}"
