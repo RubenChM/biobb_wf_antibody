@@ -37,7 +37,32 @@ COMPLEXES = (
     ("3V6Z_AB:F",      "3V6F_AB", "3KXS_F"),
 )
 
-def write_case_config(index, out_dir, gmx_bin=None, mpi_bin=None, ncores=None):
+def inject_cluster_runtime(config, gmx_bin=None, mpi_bin=None, mpi_np=None,
+                           num_threads_omp=None):
+    """Apply the cluster launch settings to every GROMACS simulation step."""
+    for name, section in config.items():
+        if not isinstance(section, dict):
+            continue
+        tool = section.get('tool') or name
+        properties = section.get('properties') or {}
+
+        if gmx_bin and 'binary_path' in properties:
+            properties['binary_path'] = gmx_bin
+
+        if tool not in ('mdrun', 'mdrun_multidir'):
+            continue
+
+        properties = section.setdefault('properties', {})
+        if mpi_bin:
+            properties['mpi_bin'] = mpi_bin
+        if mpi_np is not None:
+            properties['mpi_np'] = int(mpi_np)
+        if num_threads_omp is not None:
+            properties['num_threads_omp'] = int(num_threads_omp)
+
+
+def write_case_config(index, out_dir, gmx_bin=None, mpi_bin=None, ncores=None,
+                      mpi_np=None, num_threads_omp=None):
     """Write the configuration file of one complex and return its path."""
     if not 0 <= index < len(COMPLEXES):
         raise SystemExit(f"Index {index} is out of range, only {len(COMPLEXES)} complexes defined.")
@@ -77,17 +102,10 @@ def write_case_config(index, out_dir, gmx_bin=None, mpi_bin=None, ncores=None):
             section.setdefault('properties', properties)
             properties.setdefault('cfg', {})['ncores'] = int(ncores)
 
-    # The GROMACS and MPI launchers of the template are the bare 'gmx_mpi' and
-    # 'mpirun', the ones the modules of job_array.sh put on the PATH. Only the steps
-    # that already name a launcher are touched, so the sections of the other tools
-    # (HADDOCK3, the pdb tools, ANARCII) keep theirs.
-    for section in config.values():
-        if not isinstance(section, dict):
-            continue
-        properties = section.get('properties') or {}
-        for key, value in [('binary_path', gmx_bin), ('mpi_bin', mpi_bin)]:
-            if value and key in properties:
-                properties[key] = value
+    # All mdrun steps use the same Slurm allocation. In a conventional MD run the
+    # ranks cooperate on one simulation; in mdrun_multidir they are distributed
+    # over the AWH walkers. Other GROMACS tools remain single-process.
+    inject_cluster_runtime(config, gmx_bin, mpi_bin, mpi_np, num_threads_omp)
 
     # 'file:<path>' paths are handed over to the building block as they are, so they
     # are relative to the current directory and not to the working one. Every one of
@@ -114,8 +132,9 @@ def write_case_config(index, out_dir, gmx_bin=None, mpi_bin=None, ncores=None):
 
 
 def main(index, out_dir, dry_run=False, download_only=False, gmx_bin=None, mpi_bin=None,
-         ncores=None):
-    case_dir, config_path = write_case_config(index, out_dir, gmx_bin, mpi_bin, ncores)
+         ncores=None, mpi_np=None, num_threads_omp=None):
+    case_dir, config_path = write_case_config(
+        index, out_dir, gmx_bin, mpi_bin, ncores, mpi_np, num_threads_omp)
     if dry_run: return config_path
     # The workflow modules are imported instead of being run in another process, so
     # the task keeps the environment SLURM started it with
@@ -141,8 +160,14 @@ if __name__ == '__main__':
                         help="GROMACS binary of every GROMACS step, defaults to $GMX_BIN "
                              "and, without it, to the 'gmx_mpi' of the template")
     parser.add_argument('--mpi-bin', default=os.environ.get('MPI_BIN'),
-                        help="MPI launcher of the multidir step, defaults to $MPI_BIN "
-                             "and, without it, to the 'mpirun' of the template")
+                        help="MPI launcher of every mdrun step, defaults to $MPI_BIN; "
+                             "without it, ordinary mdrun steps remain single-rank")
+    parser.add_argument('--mpi-np', type=int, default=os.environ.get('SLURM_NTASKS'),
+                        help="MPI ranks of every mdrun step, defaults to $SLURM_NTASKS")
+    parser.add_argument('--num-threads-omp', type=int,
+                        default=os.environ.get('SLURM_CPUS_PER_TASK'),
+                        help="OpenMP threads per MPI rank of every mdrun step, defaults "
+                             "to $SLURM_CPUS_PER_TASK")
     parser.add_argument('--ncores', type=int, default=os.environ.get('SLURM_CPUS_PER_TASK'),
                         help="cores of the HADDOCK3 dockings, defaults to "
                              "$SLURM_CPUS_PER_TASK and, without it, to the 'ncores' of "
@@ -152,4 +177,5 @@ if __name__ == '__main__':
     if args.index is None:
         parser.error("--index is required when $SLURM_ARRAY_TASK_ID is not set")
     main(int(args.index), args.out_dir, args.dry_run, download_only=args.download_only,
-         gmx_bin=args.gmx_bin, mpi_bin=args.mpi_bin, ncores=args.ncores)
+         gmx_bin=args.gmx_bin, mpi_bin=args.mpi_bin, ncores=args.ncores,
+         mpi_np=args.mpi_np, num_threads_omp=args.num_threads_omp)

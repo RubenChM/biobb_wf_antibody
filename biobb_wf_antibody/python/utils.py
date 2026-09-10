@@ -17,6 +17,7 @@ built from the CDR/framework definitions of cdr.py.
 
 import glob
 import gzip
+import itertools
 import os
 import re
 import shutil
@@ -24,6 +25,9 @@ import tarfile
 import time
 import urllib.request
 import zipfile
+import MDAnalysis as mda
+from MDAnalysis.lib.distances import minimize_vectors
+import numpy as np
 
 
 def parse_identifier(identifier):
@@ -33,8 +37,8 @@ def parse_identifier(identifier):
     antigen chains of a reference complex. A trailing '(<n>)' is the model to
     extract from the entry, needed by the NMR ensembles that hold one conformer per
     model:
-      '4G6K_HL'     -> ('4G6K', 'H,L', None, None)
-      '4G6M_HL:A'   -> ('4G6M', 'H,L', 'A', None)
+      '4G6K_HL'     -> ('4G6K', 'H,L', None, '1')
+      '4G6M_HL:A'   -> ('4G6M', 'H,L', 'A', '1')
       '1IK0_A(10)'  -> ('1IK0', 'A', None, '10')
     """
     identifier = identifier.strip()
@@ -46,7 +50,7 @@ def parse_identifier(identifier):
     return (pdb_code,
             ','.join(before_colon),
             ','.join(after_colon) if after_colon else None,
-            model_match.group(1) if model_match else None)
+            model_match.group(1) if model_match else '1')
 
 
 def resolve_complex(properties):
@@ -136,10 +140,17 @@ def pdb_tools_pipeline(inp_file, out_file, steps):
 
 
 def zip_pdb_files(pdb_paths, zip_file_path):
-    """Join several PDB files in a single ZIP file, as expected by pdb_merge"""
+    """Join PDB files in the order expected by ``pdb_merge``.
+
+    ``biobb_pdb_merge`` sorts the archive members by filename before merging
+    them. Prefix each basename with its position so the caller's order is not
+    changed by descriptive filenames such as ``chain_L.pdb`` and
+    ``chain_H.pdb``.
+    """
     with zipfile.ZipFile(zip_file_path, 'w') as zipf:
-        for pdb_path in pdb_paths:
-            zipf.write(pdb_path, arcname=os.path.basename(pdb_path))
+        for index, pdb_path in enumerate(pdb_paths):
+            basename = os.path.basename(pdb_path)
+            zipf.write(pdb_path, arcname=f'{index:04d}_{basename}')
     return zip_file_path
 
 
@@ -197,6 +208,79 @@ def haddock_best_model(haddock_wf_data, output_pdb_path=None, run_dir='run'):
     return output_pdb_path
 
 
+def recover_antibody_chain_ids(haddock_pdb_path, original_antibody_pdb_path,
+                               output_pdb_path, antibody_chains):
+    """Recover the antibody chain IDs that HADDOCK fuses into chain A.
+
+    Only the requested chains are read from the original entry. Their residue-name
+    sequences are matched against HADDOCK chain A, so unrelated chains in the
+    original PDB do not affect the indices and the fused-chain order is recovered.
+    If the recovered antibody ends in chain B, move the topology-only antigen away
+    from B so that GROMACS still sees a chain transition.
+    """
+    chain_ids = tuple(chain.strip() for chain in antibody_chains.split(',')
+                      if chain.strip())
+    if not chain_ids or any(len(chain) != 1 for chain in chain_ids):
+        raise ValueError('One-character antibody chain identifiers are required, '
+                         f'got {antibody_chains!r}')
+    if len(set(chain_ids)) != len(chain_ids):
+        raise ValueError(f'Antibody chain identifiers are not unique: {antibody_chains!r}')
+
+    original = mda.Universe(original_antibody_pdb_path).select_atoms('protein')
+    # Ignore unrelated chains in the downloaded entry (for example, I and M in
+    # 2VXU); only the chains named by the antibody identifier define boundaries.
+    sequences = {}
+    for chain in chain_ids:
+        chain_atoms = original[original.chainIDs == chain]
+        if not chain_atoms.n_residues:
+            raise ValueError(f'Original antibody {original_antibody_pdb_path} has no '
+                             f'protein residues in chain {chain}')
+        sequences[chain] = tuple(chain_atoms.residues.resnames)
+
+    docked_u = mda.Universe(haddock_pdb_path)
+    fused_antibody = docked_u.select_atoms('protein and chainID A')
+    # Capture the original antigen atoms before any antibody residues are renamed
+    # to B, otherwise a later ``chainID B`` selection could include both molecules.
+    antigen = docked_u.select_atoms('chainID B')
+    if not fused_antibody.n_residues:
+        raise ValueError(f'Docked complex {haddock_pdb_path} has no protein chain A')
+    fused_sequence = tuple(fused_antibody.residues.resnames)
+
+    # The merge step can change chain order, so find the order whose concatenated
+    # sequences reproduce the complete fused antibody rather than assuming it.
+    candidate_orders = []
+    for order in itertools.permutations(chain_ids):
+        sequence = tuple(resname for chain in order for resname in sequences[chain])
+        if sequence == fused_sequence:
+            candidate_orders.append(order)
+    if not candidate_orders:
+        lengths = ', '.join(f'{chain}={len(sequences[chain])}' for chain in chain_ids)
+        raise ValueError(f'Fused antibody chain A in {haddock_pdb_path} does not match '
+                         f'the selected original antibody chains ({lengths})')
+    if len(candidate_orders) != 1:
+        raise ValueError('The order of the original antibody chains is ambiguous: '
+                         f'candidate orders are {candidate_orders}')
+
+    # These offsets are local to HADDOCK chain A; original-Universe resindices are
+    # unsafe because preceding, unselected chains shift them.
+    offset = 0
+    for chain in candidate_orders[0]:
+        chain_end = offset + len(sequences[chain])
+        fused_antibody.residues[offset:chain_end].atoms.chainIDs = chain
+        offset = chain_end
+
+    if candidate_orders[0][-1] == 'B':
+        # Keep a chain transition between antibody and antigen for pdb2gmx.
+        antigen_chain = next(chain for chain in 'CDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+                             if chain not in chain_ids)
+        antigen.chainIDs = antigen_chain
+
+    os.makedirs(os.path.dirname(os.path.abspath(output_pdb_path)), exist_ok=True)
+    with mda.Writer(output_pdb_path, docked_u.atoms.n_atoms, reindex=False) as writer:
+        writer.write(docked_u.atoms)
+    return candidate_orders[0]
+
+
 # ============================================================================
 # CHARMM36 force field
 # ============================================================================
@@ -246,3 +330,26 @@ def cdr_ndx_selection(cdr_ri, fr_ri, ri_selection, antibody_res=None):
     if antibody_res is not None:
         selection += f'\nri 1-{antibody_res}\nname 14 Antibody'
     return selection
+
+
+# ============================================================================
+# AWH pulling
+# ============================================================================
+
+def pull_group_com(atoms, box):
+    """Return the COM using GROMACS's default pull-group PBC reference atom.
+
+    With pull-groupN-pbcatom=0, GROMACS uses the middle atom in index order
+    (the lower middle for an even-sized group). Place each atom in its nearest
+    periodic image around that reference *before* averaging with the masses.
+    This also handles pull groups containing separately wrapped molecules.
+
+    ``atoms`` must have the same order and masses as the pull group; ``box`` is
+    the MDAnalysis unit cell in angstrom/degrees. No extra pull weights or custom
+    PBC reference atoms are supported. The input coordinates are not modified.
+    """
+    if not len(atoms):
+        raise ValueError('Cannot calculate the COM of an empty pull group')
+    reference = atoms.positions[(len(atoms) - 1) // 2]
+    positions = reference + minimize_vectors(atoms.positions - reference, box)
+    return np.average(positions, axis=0, weights=atoms.masses)

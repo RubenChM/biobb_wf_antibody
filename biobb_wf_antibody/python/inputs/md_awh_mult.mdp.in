@@ -10,9 +10,9 @@ nsteps                  = 12500000 ; 25 ns
 nstxout-compressed      = 5000
 nstvout                 = 0
 nstfout                 = 0
-nstcalcenergy           = 100
-nstenergy               = 1000
-nstlog                  = 1000
+nstcalcenergy           = 1000
+nstenergy               = 50000
+nstlog                  = 50000
 ;
 cutoff-scheme           = Verlet
 nstlist                 = 20

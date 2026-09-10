@@ -92,14 +92,14 @@ def build_docking_ensemble(cluster_pdb_path, experimental_pdb_path, zip_path, ou
     biobb_pdb_mkensemble(input_file_path=zip_path, output_file_path=output_pdb_path)
 
 
-def check_ndx_groups(global_log, structure_path, ndx_path, read_ndx, expected):
+def check_ndx_groups(global_log, structure_path, ndx_path, expected):
     """Check that the index groups landed on the atoms they are meant to.
 
     An index file is a list of absolute atom numbers, so a group built from the
     wrong structure resolves to a plausible-looking but wrong selection instead of
     failing. 'expected' gives the number of atoms every group must have.
     """
-    groups = read_ndx(ndx_path)
+    groups = cdr.read_ndx(ndx_path)
     universe = mda.Universe(str(structure_path))
     for name, n_atoms in expected.items():
         selection = universe.atoms[np.array(groups[name]) - 1]
@@ -253,7 +253,7 @@ def md_workflow(global_log, global_prop, global_paths, complex_ids=None):
     prop['selection'] = cdr_ndx_selection(cdr_ri, fr_ri, cdr.ri_selection)
     make_ndx(**paths, properties=prop)
     loop_ndx = paths['output_ndx_path']
-    check_ndx_groups(global_log, dry_gro, loop_ndx, cdr.read_ndx,
+    check_ndx_groups(global_log, dry_gro, loop_ndx,
                      {'Loop_CA': len(cdr_ri), 'Framework_CA': len(fr_ri)})
 
     global_log.info('step2_22_gmx_image_framework: Superpose the trajectory on the Fv framework')

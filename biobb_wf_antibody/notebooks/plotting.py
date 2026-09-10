@@ -79,7 +79,7 @@ def plot_xvg_columns(xvg_path, title, ytitles, xtitle="Time (ps)"):
     plotly.offline.init_notebook_mode(connected=True)
     plotly.offline.iplot(fig)
 
-def _smooth_density(values, grid, bandwidth=None):
+def _smooth_density(values, grid, bandwidth=None, normalize=True):
     values = np.asarray(values, dtype=float)
     values = values[np.isfinite(values)]
     if values.size < 2:
@@ -92,15 +92,21 @@ def _smooth_density(values, grid, bandwidth=None):
 
     x = (grid[:, None] - values[None, :]) / bandwidth
     density = np.exp(-0.5 * x**2).mean(axis=1) / (bandwidth * np.sqrt(2 * np.pi))
-    max_density = density.max()
-    if max_density > 0:
-        density = density / max_density
+    if normalize:
+        max_density = density.max()
+        if max_density > 0:
+            density = density / max_density
     return density
 
 
-def plot_dockq_vs_score(dir, ax = None, colors = ['blue', 'orange'], label = None):
-    results_em = dir / 'output/run/08_caprieval/capri_ss.tsv'
-    results_clust = dir / 'output/run/11_caprieval/capri_ss.tsv'
+def plot_dockq_vs_score(dir, ax = None, colors = ['blue', 'orange'], label = None,
+                        marker_alpha=0.7, marker_size=40, normalize_density=True):
+    # Notebook fixtures pass the workflow-step directory, while production
+    # BioBB cases expose the HADDOCK output as ``haddock_output``. Accept the
+    # output directory itself as well as a parent containing ``output``.
+    results_dir = dir / 'output' if (dir / 'output').is_dir() else dir
+    results_em = results_dir / 'run/08_caprieval/capri_ss.tsv'
+    results_clust = results_dir / 'run/11_caprieval/capri_ss.tsv'
     df_em = pd.read_csv(results_em, sep='\t')
     df_clust = pd.read_csv(results_clust, sep='\t')
 
@@ -124,14 +130,19 @@ def plot_dockq_vs_score(dir, ax = None, colors = ['blue', 'orange'], label = Non
         ax._dockq_histx = ax_histx
         ax._dockq_histy = ax_histy
 
-    ax.scatter(df_em['score'], df_em['dockq'], color=colors[0], alpha=0.7, s=40, label='_nolegend_')
-    ax.scatter(df_clust['score'], df_clust['dockq'], color=colors[1], alpha=0.7, s=40, label='_nolegend_', marker='x')
+    ax.scatter(df_em['score'], df_em['dockq'], color=colors[0], alpha=marker_alpha,
+               s=marker_size, label='_nolegend_')
+    ax.scatter(df_clust['score'], df_clust['dockq'], color=colors[1], alpha=marker_alpha,
+               s=marker_size, label='_nolegend_', marker='x')
     ax.set_xlabel('HADDOCK score')
     ax.set_ylabel('DockQ')
 
-    for threshold in [0.23, 0.49, 0.80]:
-        ax.axhline(threshold, color='gray', linestyle='--', linewidth=1, alpha=0.6)
-        ax.text(ax.get_xlim()[1], threshold, f' {threshold}', va='bottom', ha='right', color='gray', fontsize=8)
+    if not getattr(ax, '_dockq_thresholds_ready', False):
+        for threshold in [0.23, 0.49, 0.80]:
+            ax.axhline(threshold, color='gray', linestyle='--', linewidth=1, alpha=0.6)
+            ax.text(0.99, threshold, f' {threshold}', va='bottom', ha='right',
+                    color='gray', fontsize=8, transform=ax.get_yaxis_transform())
+        ax._dockq_thresholds_ready = True
 
     # Fit linear regression lines for EM and Cluster data
     for label_line, df in [('EM', df_em)]:#, ('Cluster', df_clust)]:
@@ -142,7 +153,10 @@ def plot_dockq_vs_score(dir, ax = None, colors = ['blue', 'orange'], label = Non
             coeffs = np.polyfit(x[mask], y[mask], 1)
             poly = np.poly1d(coeffs)
             xs = np.linspace(x[mask].min(), x[mask].max(), 100)
-            ax.plot(xs, poly(xs), color=colors[0] if label_line == 'EM' else colors[1], linewidth=2, alpha=0.8, linestyle='--')
+            # Stop the fitted line at the minimum observed DockQ.
+            ys = poly(xs)
+            visible = ys >= y[mask].min()
+            ax.plot(xs[visible], ys[visible], color=colors[0] if label_line == 'EM' else colors[1], linewidth=2, alpha=0.8, linestyle='--')
 
     def _plot_density(ax_panel, values, color, orientation='x'):
         values = np.asarray(values, dtype=float)
@@ -151,7 +165,7 @@ def plot_dockq_vs_score(dir, ax = None, colors = ['blue', 'orange'], label = Non
             return
 
         grid = np.linspace(values.min(), values.max(), 200)
-        density = _smooth_density(values, grid)
+        density = _smooth_density(values, grid, normalize=normalize_density)
 
         if orientation == 'x':
             ax_panel.plot(grid, density, color=color, linewidth=2.5, alpha=1.0, zorder=3)

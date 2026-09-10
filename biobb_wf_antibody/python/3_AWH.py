@@ -45,7 +45,8 @@ from biobb_model.model.fix_side_chain import fix_side_chain
 
 import cdr
 from utils import (cdr_ndx_selection, ensure_force_field, haddock_best_model,
-                   read_interface, report_execution)
+                   read_interface, report_execution, resolve_complex, pull_group_com,
+                   recover_antibody_chain_ids)
 
 # The clustering-to-docking stages are identical to the ones of the free MD run, so they
 # are reused instead of being written again. The subworkflow modules are named after
@@ -80,10 +81,10 @@ def awh_interval(global_log, complex_pdb_path, equilibrated_gro_path,
 
     The chains are identified on the docked complex, which still carries its chain
     identifiers, and their residues are then looked up in the equilibrated structure,
-    which does not. Every distance is taken under the minimum image convention: the
-    .gro written by mdrun wraps whole molecules into the box, so the antigen can sit
-    one box vector away from the antibody even though the complex is intact, and the
-    GROMACS pull code evaluates the coordinate the same way.
+    which does not. A pull group can contain separately wrapped molecules, so its
+    atoms are first placed in the nearest periodic image around GROMACS's default
+    pull reference atom before calculating its centre of mass. The vector between
+    the two centres and the interface contacts also use the minimum image convention.
     """
     pdb_chains = mda.Universe(complex_pdb_path).select_atoms('protein')
     chain_a_residx = pdb_chains.select_atoms('chainID A').residues.resindices
@@ -106,7 +107,7 @@ def awh_interval(global_log, complex_pdb_path, equilibrated_gro_path,
         paratope_atoms.positions, epitope_atoms.positions, box=box).min()
 
     com_vector = mda.lib.distances.minimize_vectors(
-        chain_a.center_of_mass() - chain_b.center_of_mass(), box=box)
+        pull_group_com(chain_a, box) - pull_group_com(chain_b, box), box=box)
     com_distance = np.linalg.norm(com_vector)
 
     awh_min = com_distance - minimum_distance + awh_minimum_distance(minimum_distance)
@@ -151,8 +152,11 @@ def zip_walker_trajectories(walkers_output_dir, n_walkers, zip_path, traj_name='
     return zip_path
 
 
-def awh_workflow(global_log, global_prop, global_paths):
+def awh_workflow(global_log, global_prop, global_paths, complex_ids=None):
     """Subworkflow 3: AWH-MD of the complex and docking of its CDR-loop clusters"""
+
+    if complex_ids is None:
+        complex_ids = resolve_complex(global_prop['step0_0_pdb_codes'])
 
     global_log.info('step3_0_fix_side_chain: Model the missing side chains of the docked complex')
     paths = dict(global_paths['step3_0_fix_side_chain'])
@@ -161,10 +165,16 @@ def awh_workflow(global_log, global_prop, global_paths):
     # it gzipped, so it is decompressed into the step directory
     best_model = haddock_best_model(paths.pop('input_haddock_wf_data'),
                                     paths.pop('output_best_model_path'))
+    original_antibody = paths.pop('input_antibody_pdb_path')
+    chain_pdb = paths.pop('output_chain_pdb_path')
     global_log.info(f'  Best model of the baseline docking: {best_model}')
     fix_side_chain(input_pdb_path=best_model, properties=global_prop['step3_0_fix_side_chain'],
                    **paths)
     fixed_pdb = paths['output_pdb_path']
+    recover_antibody_chain_ids(
+        fixed_pdb, original_antibody, chain_pdb, complex_ids['antibody']['chains'])
+    global_log.info(f'  Recovered antibody chains {complex_ids["antibody"]["chains"]} '
+                    'for pdb2gmx')
 
     global_log.info('step3_1_charmm36: Force field of the GROMACS steps')
     paths = global_paths['step3_1_charmm36']

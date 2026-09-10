@@ -57,7 +57,7 @@ def main(config, download_only=False):
     # Subworkflow 2: free MD of the unbound antibody, its CDR-loop clusters docked
     md_out = md.md_workflow(global_log, global_prop, global_paths, complex_ids)
     # Subworkflow 3: AWH-MD of the best docked complex, its CDR-loop clusters docked.
-    awh_out = awh.awh_workflow(global_log, global_prop, global_paths)
+    awh_out = awh.awh_workflow(global_log, global_prop, global_paths, complex_ids)
 
     report_execution(global_log, conf, config, start_time, extra_lines=(
         f'Baseline docking: {haddock_out["haddock_wf_data"]}',

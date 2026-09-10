@@ -4,8 +4,8 @@
 #SBATCH --error=array_logs/ab_%A_%a.err
 #SBATCH --array=0-15
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=32
-#SBATCH --time=24:00:00
+#SBATCH --cpus-per-task=64
+#SBATCH --time=3-00:00:00
 #SBATCH --mail-type=END,FAIL,ARRAY_TASKS
 #SBATCH --mail-user=ruben.chaves@irbbarcelona.org
 

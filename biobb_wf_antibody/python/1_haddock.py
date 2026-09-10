@@ -27,7 +27,7 @@ from utils import (pdb_tools_pipeline, read_interface, report_execution,
 
 
 def prepare_antibody(input_pdb_path, output_pdb_path, chains, merge_paths, merge_prop,
-                     model=None):
+                     model='1'):
     """Prepare an antibody structure to meet the HADDOCK3 requirements.
 
     Every chain is extracted and cleaned on its own, the chains are then merged
@@ -43,15 +43,15 @@ def prepare_antibody(input_pdb_path, output_pdb_path, chains, merge_paths, merge
         for ch in [ch.strip() for ch in chains.split(',')]:
             chain_pdb_paths.append(os.path.join(step_path, f'chain_{ch}.pdb'))
             # 0. Extract the requested model + steps
-            steps = [(biobb_pdb_selmodel.biobb_pdb_selmodel, {'models': model})] if model else [] 
-            steps += [
-            (biobb_pdb_tidy.biobb_pdb_tidy,           {'strict': True}),    # 1. Adhere to the format specifications
-            (biobb_pdb_selchain.biobb_pdb_selchain,   {'chains': ch}),      # 2. Extract chain
-            (biobb_pdb_delhetatm.biobb_pdb_delhetatm, {}),                  # 3. Remove all HETATM records 
-            (biobb_pdb_fixinsert.biobb_pdb_fixinsert, {}),                  # 4. Delete insertion codes and shift residue numbering 
-            (biobb_pdb_selaltloc.biobb_pdb_selaltloc, {}),                  # 5. Select altloc labels (highest occupancy) 
-            (biobb_pdb_keepcoord.biobb_pdb_keepcoord, {}),                  # 6. Remove all non-coordinate records 
-            (biobb_pdb_tidy.biobb_pdb_tidy,           {})                   # 7. Adhere to the format specifications
+            steps = [
+                (biobb_pdb_selmodel.biobb_pdb_selmodel, {'models': model}),
+                (biobb_pdb_tidy.biobb_pdb_tidy,           {'strict': True}),    # 1. Adhere to the format specifications
+                (biobb_pdb_selchain.biobb_pdb_selchain,   {'chains': ch}),      # 2. Extract chain
+                (biobb_pdb_delhetatm.biobb_pdb_delhetatm, {}),                  # 3. Remove all HETATM records 
+                (biobb_pdb_fixinsert.biobb_pdb_fixinsert, {}),                  # 4. Delete insertion codes and shift residue numbering 
+                (biobb_pdb_selaltloc.biobb_pdb_selaltloc, {}),                  # 5. Select altloc labels (highest occupancy) 
+                (biobb_pdb_keepcoord.biobb_pdb_keepcoord, {}),                  # 6. Remove all non-coordinate records 
+                (biobb_pdb_tidy.biobb_pdb_tidy,           {})                   # 7. Adhere to the format specifications
             ]
             pdb_tools_pipeline(input_pdb_path, chain_pdb_paths[-1], steps)
 
@@ -78,17 +78,18 @@ def prepare_antigen(input_pdb_path, output_pdb_path, chains, model=None):
     step_path = os.path.dirname(output_pdb_path)
 
     with fu.change_dir(step_path):
-        steps = [(biobb_pdb_selmodel.biobb_pdb_selmodel, {'models': model})] if model else []
-        steps += [                               # 0. Keep only the requested model
+        steps = [
+            (biobb_pdb_selmodel.biobb_pdb_selmodel, {'models': model}),   # 0. Keep only the requested model
             (biobb_pdb_tidy.biobb_pdb_tidy, {'strict': True}),            # 1. Adhere to the format specifications
             (biobb_pdb_selchain.biobb_pdb_selchain, {'chains': chains}),  # 2. Extract chains
-            (biobb_pdb_chain.biobb_pdb_chain, {'chain': 'B'}),            # 3. Modify the chain identifier column
-            (biobb_pdb_chainxseg.biobb_pdb_chainxseg, {}),                # 4. Swap the segment identifier for the chain identifier
-            (biobb_pdb_delhetatm.biobb_pdb_delhetatm, {}),                # 5. Remove all HETATM records
-            (biobb_pdb_fixinsert.biobb_pdb_fixinsert, {}),                # 6. Delete insertion codes and shift residue numbering
-            (biobb_pdb_selaltloc.biobb_pdb_selaltloc, {}),                # 7. Select altloc labels (highest occupancy)
-            (biobb_pdb_keepcoord.biobb_pdb_keepcoord, {}),                # 8. Remove all non-coordinate records
-            (biobb_pdb_tidy.biobb_pdb_tidy, {'strict': True})             # 9. Adhere to the format specifications
+            (biobb_pdb_reres.biobb_pdb_reres,         {'number': 1}),     # 3. Renumber the residues starting from 1
+            (biobb_pdb_chain.biobb_pdb_chain, {'chain': 'B'}),            # 4. Modify the chain identifier column
+            (biobb_pdb_chainxseg.biobb_pdb_chainxseg, {}),                # 5. Swap the segment identifier for the chain identifier
+            (biobb_pdb_delhetatm.biobb_pdb_delhetatm, {}),                # 6. Remove all HETATM records
+            (biobb_pdb_fixinsert.biobb_pdb_fixinsert, {}),                # 7. Delete insertion codes and shift residue numbering
+            (biobb_pdb_selaltloc.biobb_pdb_selaltloc, {}),                # 8. Select altloc labels (highest occupancy)
+            (biobb_pdb_keepcoord.biobb_pdb_keepcoord, {}),                # 9. Remove all non-coordinate records
+            (biobb_pdb_tidy.biobb_pdb_tidy, {'strict': True})             # 10. Adhere to the format specifications
         ]
         pdb_tools_pipeline(input_pdb_path, output_pdb_path, steps)
 

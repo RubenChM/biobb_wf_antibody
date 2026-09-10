@@ -5,6 +5,7 @@
 **/data/
 **/output*/
 **/ff/
+results/
 log/
 log*
 **/.ipynb_checkpoints
