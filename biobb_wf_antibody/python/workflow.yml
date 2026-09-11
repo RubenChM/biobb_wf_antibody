@@ -652,7 +652,7 @@ step3_18_make_ndx_chains:
   tool: make_ndx
   paths:
     input_structure_path: dependency/step3_7_grompp_min/output_tpr_path
-    output_ndx_path: index2.ndx
+    output_ndx_path: chains.ndx
 
 # One tpr per walker, written into 'walkers/walker_<i>/' as mdrun -multidir
 # expects. They are identical, the walkers only differ in the random state mdrun

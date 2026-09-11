@@ -158,6 +158,46 @@ def zip_pdb_files(pdb_paths, zip_file_path):
     return zip_file_path
 
 
+def positional_alignment_score(ref_res, target_res, alignment):
+    pairs = [
+        (ref_res[i], target_res[j])
+        for i, j in alignment.indices.T
+        if i >= 0 and j >= 0
+    ]
+
+    if len(pairs) < 3:
+        return float("inf")
+
+    ref_xyz = np.array([
+        residue.atoms.select_atoms("name CA").positions[0]
+        for residue, _ in pairs
+    ])
+    target_xyz = np.array([
+        residue.atoms.select_atoms("name CA").positions[0]
+        for _, residue in pairs
+    ])
+
+    # Kabsch superposition
+    ref_center = ref_xyz.mean(axis=0)
+    target_center = target_xyz.mean(axis=0)
+    ref_centered = ref_xyz - ref_center
+    target_centered = target_xyz - target_center
+
+    covariance = target_centered.T @ ref_centered
+    u, _, vt = np.linalg.svd(covariance)
+    rotation = vt.T @ u.T
+
+    if np.linalg.det(rotation) < 0:
+        vt[-1] *= -1
+        rotation = vt.T @ u.T
+
+    fitted = target_centered @ rotation
+    distances = np.linalg.norm(fitted - ref_centered, axis=1)
+
+    # Robust score: avoid one flexible loop dominating the decision
+    return np.median(distances) + 0.25 * np.percentile(distances, 90)
+
+
 def map_contact_residues(reference_pdb, target_pdb, chain, contacts):
     """Align observed residues and map reference contacts to cleaned PDB numbers."""
     selection = f"protein and chainID {chain}"
@@ -193,11 +233,28 @@ def map_contact_residues(reference_pdb, target_pdb, chain, contacts):
         }
         contact_maps.append({resid: residue_map.get(resid) for resid in contact_ids})
     ambiguous = [resid for resid in contact_ids
-                 if len({mapping[resid] for mapping in contact_maps}) > 1]
+                     if len({mapping[resid] for mapping in contact_maps}) > 1]
+    # If more than one alignment, choose the one with best positional alignment
     if ambiguous:
-        raise ValueError(f"Chain {chain}: equally scoring alignments disagree on contacts {ambiguous}; "
-                         "select corresponding chains before mapping")
-    contact_map = contact_maps[0]
+        scores = [
+            positional_alignment_score(ref_res, target_res, alignment)
+            for alignment in alignments
+        ]
+
+        best_order = np.argsort(scores)
+        best = best_order[0]
+
+        if len(best_order) > 1:
+            margin = scores[best_order[1]] - scores[best]
+            if margin < 0.05:
+                raise ValueError(
+                    f"Chain {chain}: sequence alignments remain structurally ambiguous "
+                    f"(scores={scores[:5]})"
+                )
+
+        contact_map = contact_maps[best]
+    else:
+        contact_map = contact_maps[0]
     missing = [resid for resid, target in contact_map.items() if target is None]
     if missing:
         warnings.warn(f"Chain {chain}: reference contacts missing in target and omitted: {missing}")

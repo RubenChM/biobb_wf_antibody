@@ -65,7 +65,7 @@ RefAbAgs = (
     ("3MXW_LH:A",	   "3MXV_LH", "3M1N_A"),
     ("5VPG_CD:A",	   "3RVT_CD", "3F5V_A"),
     ("4DN4_LH:M",	   "4DN3_LH", "1DOL_A"),
-    ("4FQI_HL:ABEFCD", "4FQH_HL", "2FK0_ABCDEF"),
+    ("4FQI_HL:ABEFCD", "4FQH_HL", "2FK0_AB"),
     ("4G6J_HL:A",      "4G5Z_HL", "4I1B_A"),
     ("4G6M_HL:A",      "4G6K_HL", "4I1B_A"),
     ("4GXU_MN:ABEFCD", "4GXV_HL", "1RUZ_HIJKLM"),
