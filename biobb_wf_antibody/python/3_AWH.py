@@ -403,7 +403,8 @@ def awh_workflow(global_log, global_prop, global_paths, complex_ids=None):
                     'experimental structure')
     paths = global_paths['step3_29_build_ensemble']
     build_docking_ensemble(clusters_clean, paths['input_antibody_pdb_path'],
-                           paths['output_zip_path'], paths['output_pdb_path'])
+                           paths['output_zip_path'], paths['output_pdb_path'],
+                           properties=global_prop['step3_29_build_ensemble'])
     ensemble_pdb = paths['output_pdb_path']
 
     global_log.info('step3_30_haddock3_run: Dock the CDR-loop ensemble against the antigen')

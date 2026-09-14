@@ -73,7 +73,8 @@ def clean_cluster_representatives(input_pdb_path, output_pdb_path):
         pdb_tools_pipeline(input_pdb_path, output_pdb_path, steps)
 
 
-def build_docking_ensemble(cluster_pdb_path, experimental_pdb_path, zip_path, output_pdb_path):
+def build_docking_ensemble(cluster_pdb_path, experimental_pdb_path, zip_path, output_pdb_path,
+                           properties):
     """Build the multi-model PDB file HADDOCK3 docks as an ensemble.
 
     It holds the cluster representatives plus the experimental structure, so the
@@ -83,13 +84,15 @@ def build_docking_ensemble(cluster_pdb_path, experimental_pdb_path, zip_path, ou
     """
     fu.create_dir(os.path.dirname(output_pdb_path))
     # 1. Split the multi-model PDB of cluster representatives into one PDB per model
-    biobb_pdb_splitmodel(input_file_path=cluster_pdb_path, output_file_path=zip_path)
+    biobb_pdb_splitmodel(input_file_path=cluster_pdb_path, output_file_path=zip_path,
+                         properties=properties)
     # 2. Add the cleaned experimental structure to the ZIP
     with zipfile.ZipFile(zip_path, 'a') as zipf:
         zipf.write(experimental_pdb_path,
                    arcname=f'zz_{os.path.basename(experimental_pdb_path)}')
     # 3. Build the multi-model (ensemble) PDB file
-    biobb_pdb_mkensemble(input_file_path=zip_path, output_file_path=output_pdb_path)
+    biobb_pdb_mkensemble(input_file_path=zip_path, output_file_path=output_pdb_path,
+                         properties=properties)
 
 
 def stage_docking_input(paths, prop, antibody_pdb_path):
@@ -260,7 +263,8 @@ def md_workflow(global_log, global_prop, global_paths, complex_ids=None):
                     'experimental structure')
     paths = global_paths['step2_25_build_ensemble']
     build_docking_ensemble(clusters_clean, paths['input_antibody_pdb_path'],
-                           paths['output_zip_path'], paths['output_pdb_path'])
+                           paths['output_zip_path'], paths['output_pdb_path'],
+                           properties=global_prop['step2_25_build_ensemble'])
     ensemble_pdb = paths['output_pdb_path']
 
     global_log.info('step2_26_haddock3_run: Dock the CDR-loop ensemble against the antigen')
