@@ -54,7 +54,7 @@ def parse_identifier(identifier):
     return (pdb_code,
             ','.join(before_colon),
             ','.join(after_colon) if after_colon else None,
-            model_match.group(1) if model_match else '1')
+            model_match.group(1) if model_match else None)
 
 
 def resolve_complex(properties):
@@ -143,19 +143,14 @@ def pdb_tools_pipeline(inp_file, out_file, steps):
     os.rename(tmp_file, out_file)
 
 
-def zip_pdb_files(pdb_paths, zip_file_path):
-    """Join PDB files in the order expected by ``pdb_merge``.
-
-    ``biobb_pdb_merge`` sorts the archive members by filename before merging
-    them. Prefix each basename with its position so the caller's order is not
-    changed by descriptive filenames such as ``chain_L.pdb`` and
-    ``chain_H.pdb``.
-    """
-    with zipfile.ZipFile(zip_file_path, 'w') as zipf:
-        for index, pdb_path in enumerate(pdb_paths):
-            basename = os.path.basename(pdb_path)
-            zipf.write(pdb_path, arcname=f'{index:04d}_{basename}')
-    return zip_file_path
+def remove_model_lines(pdb_path):
+    """Remove MODEL and ENDMDL lines."""
+    with open(pdb_path, 'r') as f:
+        lines = f.readlines()
+    with open(pdb_path, 'w') as f:
+        for line in lines:
+            if not line.startswith('MODEL') and not line.startswith('ENDMDL'):
+                f.write(line)
 
 
 def positional_alignment_score(ref_res, target_res, alignment):
@@ -198,7 +193,7 @@ def positional_alignment_score(ref_res, target_res, alignment):
     return np.median(distances) + 0.25 * np.percentile(distances, 90)
 
 
-def map_contact_residues(reference_pdb, target_pdb, chain, contacts):
+def map_contact_residues(reference_pdb, target_pdb, chain, contacts, poslaign=False):
     """Align observed residues and map reference contacts to cleaned PDB numbers."""
     selection = f"protein and chainID {chain}"
     ref_res = mda.Universe(reference_pdb).select_atoms(selection).residues
@@ -236,23 +231,27 @@ def map_contact_residues(reference_pdb, target_pdb, chain, contacts):
                      if len({mapping[resid] for mapping in contact_maps}) > 1]
     # If more than one alignment, choose the one with best positional alignment
     if ambiguous:
-        scores = [
-            positional_alignment_score(ref_res, target_res, alignment)
-            for alignment in alignments
-        ]
+        if poslaign:
+            scores = [
+                positional_alignment_score(ref_res, target_res, alignment)
+                for alignment in alignments
+            ]
 
-        best_order = np.argsort(scores)
-        best = best_order[0]
+            best_order = np.argsort(scores)
+            best = best_order[0]
 
-        if len(best_order) > 1:
-            margin = scores[best_order[1]] - scores[best]
-            if margin < 0.05:
-                raise ValueError(
-                    f"Chain {chain}: sequence alignments remain structurally ambiguous "
-                    f"(scores={scores[:5]})"
-                )
+            if len(best_order) > 1:
+                margin = scores[best_order[1]] - scores[best]
+                if margin < 0.05:
+                    raise ValueError(
+                        f"Chain {chain}: sequence alignments remain structurally ambiguous "
+                        f"(scores={scores[:5]})"
+                    )
 
-        contact_map = contact_maps[best]
+            contact_map = contact_maps[best]
+        else:
+            raise ValueError(f"Chain {chain}: equally scoring alignments disagree on contacts {ambiguous}; "
+                         "select corresponding chains before mapping")
     else:
         contact_map = contact_maps[0]
     missing = [resid for resid, target in contact_map.items() if target is None]

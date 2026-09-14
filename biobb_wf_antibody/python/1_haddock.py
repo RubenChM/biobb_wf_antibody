@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 
-import time
-import argparse
 import os
+import time
 import shutil
+import zipfile
+import argparse
 from biobb_common.configuration import settings
 from biobb_common.tools import file_utils as fu
 from biobb_pdb_tools.pdb_tools import biobb_pdb_tidy
@@ -16,18 +17,33 @@ from biobb_pdb_tools.pdb_tools import biobb_pdb_keepcoord
 from biobb_pdb_tools.pdb_tools import biobb_pdb_reres
 from biobb_pdb_tools.pdb_tools import biobb_pdb_chain
 from biobb_pdb_tools.pdb_tools import biobb_pdb_chainxseg
+from biobb_pdb_tools.pdb_tools import biobb_pdb_mkensemble
 from biobb_pdb_tools.pdb_tools.biobb_pdb_merge import biobb_pdb_merge
 from biobb_haddock.haddock_restraints.haddock_interface import haddock_interface
 from biobb_haddock.haddock_restraints.haddock3_passive_from_active import haddock3_passive_from_active
 from biobb_haddock.haddock_restraints.haddock3_actpass_to_ambig import haddock3_actpass_to_ambig
 from biobb_haddock.haddock_restraints.haddock3_restrain_bodies import haddock3_restrain_bodies
 from biobb_haddock.haddock.haddock3_run import haddock3_run
-from utils import (pdb_tools_pipeline, read_interface, report_execution,
-                   resolve_complex, zip_pdb_files, map_contact_residues)
+import utils
 
 
-def prepare_antibody(input_pdb_path, output_pdb_path, chains, merge_paths, merge_prop,
-                     model='1'):
+def zip_pdb_files(pdb_paths, zip_file_path):
+    """Join PDB files in the order expected by ``pdb_merge``.
+
+    ``biobb_pdb_merge`` sorts the archive members by filename before merging
+    them. Prefix each basename with its position so the caller's order is not
+    changed by descriptive filenames such as ``chain_L.pdb`` and
+    ``chain_H.pdb``.
+    """
+    with zipfile.ZipFile(zip_file_path, 'w') as zipf:
+        for index, pdb_path in enumerate(pdb_paths):
+            basename = os.path.basename(pdb_path)
+            zipf.write(pdb_path, arcname=f'{index:04d}_{basename}')
+    return zip_file_path
+    
+
+def prepare_antibody(input_pdb_path: str, output_pdb_path: str, chains: str, 
+                     merge_paths: str, merge_prop: str, model: str | None):
     """Prepare an antibody structure to meet the HADDOCK3 requirements.
 
     Every chain is extracted and cleaned on its own, the chains are then merged
@@ -37,14 +53,14 @@ def prepare_antibody(input_pdb_path, output_pdb_path, chains, merge_paths, merge
     """
     input_pdb_path = os.path.abspath(input_pdb_path)
     step_path = os.path.dirname(output_pdb_path)
-
+    model = model or '1'
     chain_pdb_paths = []
     with fu.change_dir(step_path):
         for ch in [ch.strip() for ch in chains.split(',')]:
             chain_pdb_paths.append(os.path.join(step_path, f'chain_{ch}.pdb'))
             # 0. Extract the requested model + steps
             steps = [
-                (biobb_pdb_selmodel.biobb_pdb_selmodel, {'models': model}),
+                (biobb_pdb_selmodel.biobb_pdb_selmodel, {'models': model}),     # 0. Extract the requested model
                 (biobb_pdb_tidy.biobb_pdb_tidy,           {'strict': True}),    # 1. Adhere to the format specifications
                 (biobb_pdb_selchain.biobb_pdb_selchain,   {'chains': ch}),      # 2. Extract chain
                 (biobb_pdb_delhetatm.biobb_pdb_delhetatm, {}),                  # 3. Remove all HETATM records 
@@ -53,7 +69,8 @@ def prepare_antibody(input_pdb_path, output_pdb_path, chains, merge_paths, merge
                 (biobb_pdb_keepcoord.biobb_pdb_keepcoord, {}),                  # 6. Remove all non-coordinate records 
                 (biobb_pdb_tidy.biobb_pdb_tidy,           {})                   # 7. Adhere to the format specifications
             ]
-            pdb_tools_pipeline(input_pdb_path, chain_pdb_paths[-1], steps)
+            utils.pdb_tools_pipeline(input_pdb_path, chain_pdb_paths[-1], steps)
+            utils.remove_model_lines(chain_pdb_paths[-1])
 
     # Merge the cleaned chains into a single PDB file
     merge_paths['input_file_path'] = zip_pdb_files(chain_pdb_paths, os.path.join(step_path, 'chains.zip'))
@@ -66,10 +83,10 @@ def prepare_antibody(input_pdb_path, output_pdb_path, chains, merge_paths, merge
             (biobb_pdb_chainxseg.biobb_pdb_chainxseg, {}),          # 3. Swap the segment identifier for the chain identifier
             (biobb_pdb_tidy.biobb_pdb_tidy, {'strict': True})       # 4. Adhere to the format specifications
         ]
-        pdb_tools_pipeline(merge_paths['output_file_path'], output_pdb_path, steps)
+        utils.pdb_tools_pipeline(merge_paths['output_file_path'], output_pdb_path, steps)
 
 
-def prepare_antigen(input_pdb_path, output_pdb_path, chains, model=None):
+def prepare_antigen(input_pdb_path, output_pdb_path, chains, model: str | None):
     """Prepare an antigen structure to meet the HADDOCK3 requirements.
 
     The requested chains are extracted and relabelled as a single chain B.
@@ -78,8 +95,11 @@ def prepare_antigen(input_pdb_path, output_pdb_path, chains, model=None):
     step_path = os.path.dirname(output_pdb_path)
 
     with fu.change_dir(step_path):
-        steps = [
-            (biobb_pdb_selmodel.biobb_pdb_selmodel, {'models': model}),   # 0. Keep only the requested model
+        steps = []
+        if model:
+            steps += [(biobb_pdb_selmodel.biobb_pdb_selmodel, {'models': model})] # Extract the requested model
+        steps += [
+            (biobb_pdb_mkensemble.biobb_pdb_mkensemble,         {}),       # Join models forming the biological assembly
             (biobb_pdb_tidy.biobb_pdb_tidy, {'strict': True}),            # 1. Adhere to the format specifications
             (biobb_pdb_selchain.biobb_pdb_selchain, {'chains': chains}),  # 2. Extract chains
             (biobb_pdb_chain.biobb_pdb_chain, {'chain': 'B'}),            # 4. Modify the chain identifier column
@@ -91,7 +111,8 @@ def prepare_antigen(input_pdb_path, output_pdb_path, chains, model=None):
             (biobb_pdb_reres.biobb_pdb_reres,         {'number': 1}),     # 3. Renumber the residues starting from 1
             (biobb_pdb_tidy.biobb_pdb_tidy, {'strict': True})             # 10. Adhere to the format specifications
         ]
-        pdb_tools_pipeline(input_pdb_path, output_pdb_path, steps)
+        utils.pdb_tools_pipeline(input_pdb_path, output_pdb_path, steps)
+        utils.remove_model_lines(output_pdb_path)
 
 
 def merge_structures(input_pdb_paths, output_pdb_path):
@@ -104,7 +125,7 @@ def merge_structures(input_pdb_paths, output_pdb_path):
             (biobb_pdb_merge, {}),                                  # 1. Merge several PDB files into one
             (biobb_pdb_tidy.biobb_pdb_tidy, {'strict': True})       # 2. Adhere to the format specifications
         ]
-        pdb_tools_pipeline(zip_file_path, output_pdb_path, steps)
+        utils.pdb_tools_pipeline(zip_file_path, output_pdb_path, steps)
 
 
 def haddock_workflow(global_log, global_prop, global_paths, complex_ids=None):
@@ -115,7 +136,7 @@ def haddock_workflow(global_log, global_prop, global_paths, complex_ids=None):
     selection when this subworkflow is run from workflow.py.
     """
     if complex_ids is None:
-        complex_ids = resolve_complex(global_prop["step1_0_prepare_antibody"])
+        complex_ids = utils.resolve_complex(global_prop["step1_0_prepare_antibody"])
     reference, antibody, antigen = (complex_ids['reference'], complex_ids['antibody'],
                                     complex_ids['antigen'])
     global_log.info(f'  Antibody {antibody["pdb_code"]} chains {antibody["chains"]}, '
@@ -167,11 +188,11 @@ def haddock_workflow(global_log, global_prop, global_paths, complex_ids=None):
     paths = global_paths["step1_7_haddock_interface"]
     haddock_interface(**paths, properties=global_prop["step1_7_haddock_interface"])
     # Reference and docking structures can have different missing residues.
-    interface = read_interface(paths['output_txt_path'])
+    interface = utils.read_interface(paths['output_txt_path'])
     mapped_contacts = {}
     for chain, name, target in (('A', 'Antibody', antibody_prep),
                                 ('B', 'Antigen', antigen_prep)):
-        contacts, alignment, contact_map = map_contact_residues(
+        contacts, alignment, contact_map = utils.map_contact_residues(
             reference_prep, target, chain, ', '.join(map(str, interface[chain])))
         mapped_contacts[chain] = [int(resid) for resid in contacts.split(',')]
         global_log.info(f'  {name}: reference (target row) -> docking input (query row)')
@@ -242,7 +263,7 @@ def main(config):
     global_paths = conf.get_paths_dic()
 
     haddock_workflow(global_log, global_prop, global_paths)
-    report_execution(global_log, conf, config, start_time)
+    utils.report_execution(global_log, conf, config, start_time)
 
 
 if __name__ == '__main__':
