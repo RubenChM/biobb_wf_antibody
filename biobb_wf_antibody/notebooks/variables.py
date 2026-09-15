@@ -1,6 +1,6 @@
 from pathlib import Path
 
-case_id = 14
+case_id = 7
 complexes = (
     # Reference         Antibody   Antigen
     ("2VXT_HL:I",	   "2VXU_HL", "1J0S_A"),
@@ -57,8 +57,8 @@ reference_pdb_clean = str(dock_inp / 'reference.pdb')
 reference_interface = str(dock_dir / 'reference_interface.txt')
 antibody_actpass = str(dock_dir / 'antibody_actpass.txt')
 antigen_actpass = str(dock_dir / 'antigen_actpass.txt')
-ambig_tbl = str(dock_inp / 'ambig-paratope-epitope.tbl')
-unambig_tbl = str(dock_inp / 'antibody-unambig.tbl')
+ambig_tbl = str(dock_inp / 'ambig.tbl')
+unambig_tbl = str(dock_inp / 'unambig.tbl')
 haddock_best_pdb = str(dock_dir / 'output' / 'run' / '10_seletopclusts' / 'cluster_1_model_1.pdb')
 
 # ============================================================================
@@ -67,7 +67,8 @@ haddock_best_pdb = str(dock_dir / 'output' / 'run' / '10_seletopclusts' / 'clust
 
 MD_dir = out_path / '2_MD'
 MD_antibody_pdb_chains = str(MD_dir / 'antibody_chains.pdb')
-MD_fixed_pdb = str(MD_dir / 'antibody_fixed.pdb')
+antibody_fixed_pdb = str(dock_dir / 'antibody_fixed.pdb')
+antigen_fixed_pdb = str(dock_dir / 'antigen_fixed.pdb')
 MD_output_pdb2gmx_gro = str(MD_dir / 'antibody_pdb2gmx.gro')
 MD_output_pdb2gmx_top_zip = str(MD_dir / 'antibody_pdb2gmx_top.zip')
 MD_output_editconf_gro = str(MD_dir / 'antibody_editconf.gro')
@@ -76,6 +77,8 @@ MD_output_solvate_top_zip = str(MD_dir / 'antibody_solvate_top.zip')
 MD_output_gppion_tpr = str(MD_dir / 'antibody_gppion.tpr')
 MD_output_genion_gro = str(MD_dir / 'antibody_genion.gro')
 MD_output_genion_top_zip = str(MD_dir / 'antibody_genion_top.zip')
+ff_dir = data_path / 'ff'
+ff_abs_path = ff_dir.resolve()
 # The minimization and the equilibration mdp files are shared with the AWH section,
 # hence no 'MD_' prefix, as with the 'input_mdp_awh*' ones below
 input_mdp_min = MD_dir / "emin-charmm.mdp"
@@ -103,7 +106,7 @@ MD_imaged_traj = MD_dir / 'antibody_imaged_traj.xtc'
 MD_dry_gro = MD_dir / 'antibody_md_dry.gro'
 MD_imaged_traj_rot = MD_dir / 'antibody_imaged_traj_rot.xtc'
 MD_imaged_traj_fw = MD_dir / 'antibody_imaged_traj_fw.xtc'
-MD_anarcii_pdb = str(Path(MD_fixed_pdb).with_name('antibody_anarcii_imgt.pdb'))
+MD_anarcii_pdb = str(Path(antibody_fixed_pdb).with_name('antibody_anarcii_imgt.pdb'))
 MD_anarcii_gro = MD_dir / 'antibody_anarcii.gro'
 MD_anarcii_zip = MD_dir / 'antibody_anarcii.zip'
 MD_loop_ndx = MD_dir / 'antibody_loop.ndx'

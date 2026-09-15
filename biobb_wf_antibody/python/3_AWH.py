@@ -41,12 +41,12 @@ from biobb_gromacs.gromacs.mdrun_multidir import mdrun_multidir
 from biobb_gromacs.gromacs.pdb2gmx import pdb2gmx
 from biobb_gromacs.gromacs.solvate import solvate
 from biobb_gromacs.gromacs.trjcat import trjcat
-from biobb_model.model.fix_side_chain import fix_side_chain
 
 import cdr
 from utils import (cdr_ndx_selection, ensure_force_field, haddock_best_model,
                    read_interface, report_execution, resolve_complex, pull_group_com,
-                   recover_antibody_chain_ids, check_ndx_groups, map_contact_residues)
+                   recover_chain_ids, check_ndx_groups, map_contact_residues,
+                   select_pull_pbcatom, validate_awh_interval)
 
 # The clustering-to-docking stages are identical to the ones of the free MD run, so they
 # are reused instead of being written again. The subworkflow modules are named after
@@ -81,8 +81,8 @@ def awh_interval(global_log, complex_pdb_path, equilibrated_gro_path,
     The chains are identified on the docked complex, which still carries its chain
     identifiers, and their residues are then looked up in the equilibrated structure,
     which does not. A pull group can contain separately wrapped molecules, so its
-    atoms are first placed in the nearest periodic image around GROMACS's default
-    pull reference atom before calculating its centre of mass. The vector between
+    atoms are first placed in the nearest periodic image around an explicit central
+    reference atom from the whole docking structure. The vector between
     the two centres and the interface contacts also use the minimum image convention.
     """
     pdb_chains = mda.Universe(complex_pdb_path).select_atoms('protein')
@@ -105,8 +105,10 @@ def awh_interval(global_log, complex_pdb_path, equilibrated_gro_path,
     minimum_distance = mda.lib.distances.distance_array(
         paratope_atoms.positions, epitope_atoms.positions, box=box).min()
 
+    pbcatom_a = select_pull_pbcatom(chain_a, pdb_chains.select_atoms('chainID A'), box)
+    pbcatom_b = select_pull_pbcatom(chain_b, pdb_chains.select_atoms('chainID B'), box)
     com_vector = mda.lib.distances.minimize_vectors(
-        pull_group_com(chain_a, box) - pull_group_com(chain_b, box), box=box)
+        pull_group_com(chain_a, box, pbcatom_a) - pull_group_com(chain_b, box, pbcatom_b), box=box)
     com_distance = np.linalg.norm(com_vector)
 
     awh_min = com_distance - minimum_distance + awh_minimum_distance(minimum_distance)
@@ -115,16 +117,19 @@ def awh_interval(global_log, complex_pdb_path, equilibrated_gro_path,
     global_log.info(f'  Chain A - chain B centre of mass distance: {com_distance:.2f} A')
     global_log.info(f'  AWH sampling interval: {awh_min:.2f} - {awh_max:.2f} A')
     # The mdp file takes nanometres
-    return awh_min / 10, awh_max / 10
+    validate_awh_interval(box, awh_min / 10, awh_max / 10)
+    global_log.info(f'  Pull PBC reference atoms: {pbcatom_a}, {pbcatom_b}')
+    return awh_min / 10, awh_max / 10, pbcatom_a, pbcatom_b
 
 
-def write_awh_mdp(template_path, output_mdp_path, awh_min, awh_max):
+def write_awh_mdp(template_path, output_mdp_path, awh_min, awh_max, pbcatom_a, pbcatom_b):
     """Fill the edges of the sampling interval into the AWH mdp template"""
     fu.create_dir(os.path.dirname(output_mdp_path))
     with open(template_path) as f:
         template = f.read()
     with open(output_mdp_path, 'w') as f:
-        f.write(template.format(awh_min=awh_min, awh_max=awh_max))
+        f.write(template.format(awh_min=awh_min, awh_max=awh_max,
+                                pbcatom_a=pbcatom_a, pbcatom_b=pbcatom_b))
     return output_mdp_path
 
 
@@ -157,23 +162,24 @@ def awh_workflow(global_log, global_prop, global_paths, complex_ids=None):
     if complex_ids is None:
         complex_ids = resolve_complex(global_prop['step0_0_pdb_codes'])
 
-    global_log.info('step3_0_fix_side_chain: Model the missing side chains of the docked complex')
-    paths = dict(global_paths['step3_0_fix_side_chain'])
+    global_log.info('step3_0_recover_chains: Recover the repaired antibody and antigen chains')
+    paths = dict(global_paths['step3_0_recover_chains'])
     # The complex to simulate is the best model of the baseline docking, whose stage
     # number inside the HADDOCK3 run directory is not known in advance. HADDOCK3 writes
     # it gzipped, so it is decompressed into the step directory
     best_model = haddock_best_model(paths.pop('input_haddock_wf_data'),
                                     paths.pop('output_best_model_path'))
+    # Fused A/B labels identify pull groups; recovered labels are for topology only.
+    fixed_pdb = best_model
     original_antibody = paths.pop('input_antibody_pdb_path')
+    original_antigen = paths.pop('input_antigen_pdb_path')
     chain_pdb = paths.pop('output_chain_pdb_path')
     global_log.info(f'  Best model of the baseline docking: {best_model}')
-    fix_side_chain(input_pdb_path=best_model, properties=global_prop['step3_0_fix_side_chain'],
-                   **paths)
-    fixed_pdb = paths['output_pdb_path']
-    recover_antibody_chain_ids(
-        fixed_pdb, original_antibody, chain_pdb, complex_ids['antibody']['chains'])
+    recover_chain_ids(
+        best_model, original_antibody, complex_ids['antibody']['chains'],
+        original_antigen, complex_ids['antigen']['chains'], chain_pdb)
     global_log.info(f'  Recovered antibody chains {complex_ids["antibody"]["chains"]} '
-                    'for pdb2gmx')
+                    f'and antigen chains {complex_ids["antigen"]["chains"]} for pdb2gmx')
 
     global_log.info('step3_1_charmm36: Force field of the GROMACS steps')
     paths = global_paths['step3_1_charmm36']
@@ -253,14 +259,14 @@ def awh_workflow(global_log, global_prop, global_paths, complex_ids=None):
             reference_prep, global_paths[step]['output_pdb_path'], chain,
             ', '.join(map(str, interface[chain])))
         interface[chain] = [int(resid) for resid in contacts.split(',')]
-    awh_min, awh_max = awh_interval(global_log, fixed_pdb, npt_gro,
+    awh_min, awh_max, pbcatom_a, pbcatom_b = awh_interval(global_log, fixed_pdb, npt_gro,
                                     interface['A'], interface['B'],
                                     prop['upper_margin'])
 
     global_log.info('step3_17_awh_mdp: mdp file of the multiple walkers AWH run')
     paths = global_paths['step3_17_awh_mdp']
     awh_mdp = write_awh_mdp(paths['input_mdp_template_path'], paths['output_mdp_path'],
-                            awh_min, awh_max)
+                            awh_min, awh_max, pbcatom_a, pbcatom_b)
 
     global_log.info('step3_18_make_ndx_chains: Index file with the two pull groups')
     # The pull groups of the AWH coordinate, addressed by residue index: the .gro and

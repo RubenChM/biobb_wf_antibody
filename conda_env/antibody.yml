@@ -16,6 +16,7 @@ dependencies:
   - biobb_gromacs >=5.3.1
   - gromacs ==2026=mpi*
   - biobb_model
+  - salilab::modeller
   - MDAnalysis
   # - pytorch-gpu # if not declared anarcii install pytorch-cpu
   # - anarcii

@@ -47,6 +47,9 @@ pull-nstfout             = 0                   ; Step interval to output the app
 
 pull-group1-name         = chA                 ; Name of pull group 1 corresponding to an entry in an index file.
 pull-group2-name         = chB                 ; Same, but for group 2.
+pull-group1-pbcatom      = {pbcatom_a}
+pull-group2-pbcatom      = {pbcatom_b}
+pull-pbc-ref-prev-step-com = yes
 
 pull-coord1-groups       = 1 2                 ; Which groups define coordinate 1? Here, groups 1 and 2.
 pull-coord1-type         = external-potential  ; Apply the bias using an external module.

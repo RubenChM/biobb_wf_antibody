@@ -16,6 +16,7 @@ built from the CDR/framework definitions of cdr.py.
 """
 
 import os
+import sys
 import re
 import glob
 import gzip
@@ -31,6 +32,7 @@ import MDAnalysis as mda
 
 from pathlib import Path
 from Bio.Align import PairwiseAligner
+from Bio.SeqUtils import seq1
 from MDAnalysis.lib.distances import minimize_vectors
 
 
@@ -55,6 +57,94 @@ def parse_identifier(identifier):
             ','.join(before_colon),
             ','.join(after_colon) if after_colon else None,
             model_match.group(1) if model_match else None)
+
+
+def parse_seqres(pdb_text):
+    """Return {chain_id: one_letter_sequence} from PDB text or SEQRES text.
+
+    Uses the PDB fixed-width fields, preserving a blank chain ID as ' '.
+    Other records are ignored; no SEQRES records returns {}. Unknown residue
+    names become X (Biopython's seq1 convention). Raises ValueError for missing,
+    duplicate or out-of-order records, inconsistent declared lengths, or an
+    incomplete sequence. This reads the deposited sequence, including residues
+    without coordinates; it does not assign author residue numbers.
+
+    Example: parse_seqres(Path('antibody.pdb').read_text())
+    """
+    residues, lengths, serials = {}, {}, {}
+    for line_number, line in enumerate(pdb_text.splitlines(), 1):
+        if line[:6] != 'SEQRES':
+            continue
+        try:
+            serial = int(line[7:10])
+            chain = line[11]
+            length = int(line[13:17])
+        except (ValueError, IndexError) as exc:
+            raise ValueError(f'Malformed SEQRES record on line {line_number}') from exc
+        if serial != serials.get(chain, 0) + 1:
+            raise ValueError(f'Unexpected SEQRES serial {serial} for chain {chain!r}')
+        if length < 1 or length != lengths.get(chain, length):
+            raise ValueError(f'Inconsistent SEQRES length for chain {chain!r}')
+        names = line[19:70].split()
+        if not names or any(len(name) != 3 for name in names):
+            raise ValueError(f'Malformed SEQRES residues on line {line_number}')
+        residues.setdefault(chain, []).extend(names)
+        lengths[chain], serials[chain] = length, serial
+    for chain, names in residues.items():
+        if len(names) != lengths[chain]:
+            raise ValueError(f'Chain {chain!r}: SEQRES declares {lengths[chain]} '
+                             f'residues but contains {len(names)}')
+    return {chain: seq1(''.join(names)) for chain, names in residues.items()}
+
+
+def write_seqres_fasta(pdb_path, chains, fasta_path):
+    """Write selected deposited chain sequences for backbone reconstruction."""
+    sequences = parse_seqres(Path(pdb_path).read_text())
+    selected = [c.strip() for c in chains.split(',') if c.strip()]
+    if not selected or any(c not in sequences for c in selected):
+        raise ValueError(f'Missing SEQRES for selected chains in {pdb_path}; '
+                         'refresh the downloaded PDB with SEQRES records enabled')
+    Path(fasta_path).parent.mkdir(parents=True, exist_ok=True)
+    Path(fasta_path).write_text(''.join(f'>{c}\n{sequences[c]}\n' for c in selected))
+    return str(fasta_path)
+
+
+def repair_backbone(input_pdb_path, output_pdb_path, chains, model=None,
+                    assembly=False, properties=None):
+    """Repair selected original chains before HADDOCK renumbers or fuses them.
+
+    Read canonical sequences from the unfiltered entry; retain chain IDs for
+    later MD and AWH recovery. Explicit models take precedence over assemblies.
+    """
+    from tempfile import TemporaryDirectory
+    from biobb_pdb_tools.pdb_tools.biobb_pdb_selmodel import biobb_pdb_selmodel
+    from biobb_pdb_tools.pdb_tools.biobb_pdb_mkensemble import biobb_pdb_mkensemble
+    from biobb_pdb_tools.pdb_tools.biobb_pdb_selchain import biobb_pdb_selchain
+    from biobb_model.model.fix_backbone import fix_backbone
+
+    output = Path(output_pdb_path).resolve()
+    output.parent.mkdir(parents=True, exist_ok=True)
+    fasta = write_seqres_fasta(input_pdb_path, chains, output.with_suffix('.fasta'))
+    # Temporary preprocessing outputs must not be skipped by restart settings.
+    prep = dict(properties or {}, restart=False)
+    with TemporaryDirectory(dir=output.parent) as folder:
+        selected_model = str(Path(folder) / 'model.pdb')
+        selected_chains = str(Path(folder) / 'chains.pdb')
+        if assembly and model is None:
+            biobb_pdb_mkensemble(input_file_path=str(input_pdb_path),
+                                output_file_path=selected_model, properties=prep)
+        else:
+            biobb_pdb_selmodel(input_file_path=str(input_pdb_path),
+                              output_file_path=selected_model,
+                              properties=dict(prep, models=model or '1'))
+        biobb_pdb_selchain(input_file_path=selected_model, output_file_path=selected_chains,
+                          properties=dict(prep, chains=chains))
+        result = fix_backbone(input_pdb_path=selected_chains,
+                              input_fasta_canonical_sequence_path=fasta,
+                              output_pdb_path=str(output), properties=properties)
+        if result != 0 or not output.is_file():
+            raise RuntimeError(f'Backbone repair failed for {input_pdb_path}')
+    return str(output)
 
 
 def resolve_complex(properties):
@@ -317,77 +407,72 @@ def haddock_best_model(haddock_wf_data, output_pdb_path=None, run_dir='run'):
     return output_pdb_path
 
 
-def recover_antibody_chain_ids(haddock_pdb_path, original_antibody_pdb_path,
-                               output_pdb_path, antibody_chains):
-    """Recover the antibody chain IDs that HADDOCK fuses into chain A.
+def recover_chain_ids(
+        haddock_pdb_path, antibody_pdb_path, antibody_chains,
+        antigen_pdb_path, antigen_chains, output_pdb_path
+        ):
+    """Restore chains fused into HADDOCK A (antibody) and optionally B (antigen).
 
-    Only the requested chains are read from the original entry. Their residue-name
-    sequences are matched against HADDOCK chain A, so unrelated chains in the
-    original PDB do not affect the indices and the fused-chain order is recovered.
-    If the recovered antibody ends in chain B, move the topology-only antigen away
-    from B so that GROMACS still sees a chain transition.
+    Match selected reference chains by residue sequence, independent of their
+    order in the entry. Identical antigen subunits follow the requested order.
+    Conflicting antigen IDs get unused IDs with a warning. Return the original
+    antibody chain order. Both antigen arguments must be supplied together.
     """
-    chain_ids = tuple(chain.strip() for chain in antibody_chains.split(',')
-                      if chain.strip())
-    if not chain_ids or any(len(chain) != 1 for chain in chain_ids):
-        raise ValueError('One-character antibody chain identifiers are required, '
-                         f'got {antibody_chains!r}')
-    if len(set(chain_ids)) != len(chain_ids):
-        raise ValueError(f'Antibody chain identifiers are not unique: {antibody_chains!r}')
+    docked = mda.Universe(haddock_pdb_path)
+    # Capture both groups before changing any IDs.
+    groups = {c: docked.select_atoms(f'protein and chainID {c}') for c in ('A', 'B')}
 
-    original = mda.Universe(original_antibody_pdb_path).select_atoms('protein')
-    # Ignore unrelated chains in the downloaded entry (for example, I and M in
-    # 2VXU); only the chains named by the antibody identifier define boundaries.
-    sequences = {}
-    for chain in chain_ids:
-        chain_atoms = original[original.chainIDs == chain]
-        if not chain_atoms.n_residues:
-            raise ValueError(f'Original antibody {original_antibody_pdb_path} has no '
-                             f'protein residues in chain {chain}')
-        sequences[chain] = tuple(chain_atoms.residues.resnames)
+    def match(reference_path, requested, fused_id, label):
+        ids = tuple(c.strip() for c in requested.split(',') if c.strip())
+        if not ids or any(len(c) != 1 for c in ids) or len(set(ids)) != len(ids):
+            raise ValueError(f'Unique one-character {label} chain identifiers are required')
+        reference = mda.Universe(str(reference_path)).select_atoms('protein')
+        sequences = {c: tuple(reference[reference.chainIDs == c].residues.resnames)
+                     for c in ids}
+        if not all(sequences.values()):
+            raise ValueError(f'Missing selected {label} chains in {reference_path}')
+        fused_sequence = tuple(groups[fused_id].residues.resnames)
+        orders = [order for order in itertools.permutations(ids)
+                  if tuple(r for c in order for r in sequences[c]) == fused_sequence]
+        if not orders:
+            raise ValueError(f'Fused {label} chain {fused_id} does not match selected chains')
+        distinct = {tuple(sequences[c] for c in order) for order in orders}
+        if len(distinct) > 1 or (label == 'antibody' and len(orders) > 1):
+            raise ValueError(f'The order of the original {label} chains is ambiguous')
+        return orders[0], sequences
 
-    docked_u = mda.Universe(haddock_pdb_path)
-    fused_antibody = docked_u.select_atoms('protein and chainID A')
-    # Capture the original antigen atoms before any antibody residues are renamed
-    # to B, otherwise a later ``chainID B`` selection could include both molecules.
-    antigen = docked_u.select_atoms('chainID B')
-    if not fused_antibody.n_residues:
-        raise ValueError(f'Docked complex {haddock_pdb_path} has no protein chain A')
-    fused_sequence = tuple(fused_antibody.residues.resnames)
+    matches = {'A': match(antibody_pdb_path, antibody_chains, 'A', 'antibody'),
+               'B': match(antigen_pdb_path, antigen_chains, 'B', 'antigen')
+    }
+    antibody_order = matches['A'][0]
+    occupied = set(docked.atoms.chainIDs) | {c for order, _ in matches.values() for c in order}
 
-    # The merge step can change chain order, so find the order whose concatenated
-    # sequences reproduce the complete fused antibody rather than assuming it.
-    candidate_orders = []
-    for order in itertools.permutations(chain_ids):
-        sequence = tuple(resname for chain in order for resname in sequences[chain])
-        if sequence == fused_sequence:
-            candidate_orders.append(order)
-    if not candidate_orders:
-        lengths = ', '.join(f'{chain}={len(sequences[chain])}' for chain in chain_ids)
-        raise ValueError(f'Fused antibody chain A in {haddock_pdb_path} does not match '
-                         f'the selected original antibody chains ({lengths})')
-    if len(candidate_orders) != 1:
-        raise ValueError('The order of the original antibody chains is ambiguous: '
-                         f'candidate orders are {candidate_orders}')
+    def unused_id():
+        chain = next((c for c in 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyz'
+                      if c not in occupied), None)
+        if chain is None:
+            raise ValueError('No unused chain ID available for the antigen')
+        occupied.add(chain)
+        return chain
 
-    # These offsets are local to HADDOCK chain A; original-Universe resindices are
-    # unsafe because preceding, unselected chains shift them.
-    offset = 0
-    for chain in candidate_orders[0]:
-        chain_end = offset + len(sequences[chain])
-        fused_antibody.residues[offset:chain_end].atoms.chainIDs = chain
-        offset = chain_end
+    for fused_id, (order, sequences) in matches.items():
+        offset = 0
+        for chain in order:
+            output_chain = chain
+            if fused_id == 'B' and chain in antibody_order:
+                output_chain = unused_id()
+                warnings.warn(f'Antigen chain {chain} conflicts with an antibody chain; '
+                              f'using {output_chain} in the topology PDB', stacklevel=2)
+            end = offset + len(sequences[chain])
+            groups[fused_id].residues[offset:end].atoms.chainIDs = output_chain
+            offset = end
+    if 'B' not in matches and antibody_order[-1] == 'B':
+        groups['B'].chainIDs = unused_id()
 
-    if candidate_orders[0][-1] == 'B':
-        # Keep a chain transition between antibody and antigen for pdb2gmx.
-        antigen_chain = next(chain for chain in 'CDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
-                             if chain not in chain_ids)
-        antigen.chainIDs = antigen_chain
-
-    os.makedirs(os.path.dirname(os.path.abspath(output_pdb_path)), exist_ok=True)
-    with mda.Writer(output_pdb_path, docked_u.atoms.n_atoms, reindex=False) as writer:
-        writer.write(docked_u.atoms)
-    return candidate_orders[0]
+    Path(output_pdb_path).parent.mkdir(parents=True, exist_ok=True)
+    with mda.Writer(str(output_pdb_path), docked.atoms.n_atoms, reindex=False) as writer:
+        writer.write(docked.atoms)
+    return antibody_order
 
 
 # ============================================================================
@@ -479,8 +564,8 @@ def check_ndx_groups(global_log, structure_path, ndx_path, expected):
 # AWH pulling
 # ============================================================================
 
-def pull_group_com(atoms, box):
-    """Return the COM using GROMACS's default pull-group PBC reference atom.
+def pull_group_com(atoms, box, pbcatom=0):
+    """Return the COM using GROMACS's pull-group PBC reference atom.
 
     With pull-groupN-pbcatom=0, GROMACS uses the middle atom in index order
     (the lower middle for an even-sized group). Place each atom in its nearest
@@ -488,11 +573,62 @@ def pull_group_com(atoms, box):
     This also handles pull groups containing separately wrapped molecules.
 
     ``atoms`` must have the same order and masses as the pull group; ``box`` is
-    the MDAnalysis unit cell in angstrom/degrees. No extra pull weights or custom
-    PBC reference atoms are supported. The input coordinates are not modified.
+    the MDAnalysis unit cell in angstrom/degrees. No extra pull weights are
+    supported. ``pbcatom`` is a one-based system atom index (zero
+    selects GROMACS's default). The input coordinates are not modified.
     """
     if not len(atoms):
         raise ValueError('Cannot calculate the COM of an empty pull group')
-    reference = atoms.positions[(len(atoms) - 1) // 2]
+    indices = np.flatnonzero(atoms.indices == pbcatom - 1) if pbcatom else [(len(atoms) - 1) // 2]
+    if len(indices) != 1:
+        raise ValueError(f'PBC reference atom {pbcatom} is not in the pull group')
+    reference = atoms.positions[indices[0]]
     positions = reference + minimize_vectors(atoms.positions - reference, box)
     return np.average(positions, axis=0, weights=atoms.masses)
+
+
+def select_pull_pbcatom(atoms, reference, box):
+    """Map a central CA from a whole, unwrapped docking group onto its MD group.
+
+    Residue order must be unchanged by pdb2gmx. Check that imaging around the
+    selected atom does not split neighbouring CAs from the reference structure.
+    No coordinates are modified. Returned atom numbers are system-wide, 1-based.
+    """
+    from MDAnalysis.lib.distances import self_distance_array
+
+    ca = atoms.select_atoms('name CA')
+    ref_ca = reference.select_atoms('name CA')
+    if len(ca) != len(atoms.residues) or len(ref_ca) != len(ca):
+        raise ValueError('Pull reference and MD group must have one CA per matching residue')
+    # CA geometry avoids hydrogen/mass differences between the docking and MD inputs.
+    central = np.argmin(np.linalg.norm(ref_ca.positions - ref_ca.center_of_geometry(), axis=1))
+    pbcatom = int(ca.indices[central] + 1)
+    origin = ca.positions[central]
+    imaged = origin + minimize_vectors(ca.positions - origin, box)
+    neighbours = self_distance_array(ref_ca.positions) < 8.0
+    direct = self_distance_array(imaged)
+    periodic = self_distance_array(ca.positions, box=box)
+    if np.any((direct - periodic)[neighbours] > 1.0):
+        raise ValueError('Pull group cannot be imaged whole around its central reference '
+                         'atom. Inspect the structure and enlarge/re-equilibrate the box.')
+    return pbcatom
+
+
+def validate_awh_interval(box, start, end, margin=0.1):
+    """Validate a 3D distance interval in nm with a 0.1 nm safety margin.
+
+    Use the shortest lattice vector, including combinations in triclinic cells.
+    This is conservative for non-reduced cells; box dimensions are in angstrom.
+    """
+    from itertools import product
+    from MDAnalysis.lib.mdamath import triclinic_vectors
+
+    vectors = triclinic_vectors(box)
+    shifts = np.array([v for v in product((-1, 0, 1), repeat=3) if any(v)])
+    limit = 0.49 * np.linalg.norm(shifts @ vectors, axis=1).min() / 10
+    if not np.isfinite([start, end, limit]).all() or not 0 <= start < end < limit - margin:
+        raise ValueError(f'AWH interval {start:.3f}-{end:.3f} nm must be below '
+                         f'{limit:.3f} nm with {margin:.2f} nm margin. '
+                         'Check PBC references or enlarge and re-equilibrate the box; '
+                         'do not clip the sampling interval.')
+    return limit

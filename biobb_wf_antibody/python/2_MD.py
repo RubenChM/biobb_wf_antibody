@@ -38,7 +38,6 @@ from biobb_gromacs.gromacs.pdb2gmx import pdb2gmx
 from biobb_gromacs.gromacs.solvate import solvate
 from biobb_haddock.haddock.haddock3_run import haddock3_run
 from biobb_haddock.utils.anarcii import anarcii
-from biobb_model.model.fix_side_chain import fix_side_chain
 from biobb_pdb_tools.pdb_tools import biobb_pdb_chain
 from biobb_pdb_tools.pdb_tools import biobb_pdb_chainxseg
 from biobb_pdb_tools.pdb_tools import biobb_pdb_reres
@@ -132,10 +131,6 @@ def md_workflow(global_log, global_prop, global_paths, complex_ids=None):
     prop = global_prop['step2_0_biobb_pdb_selchain']
     prop['chains'] = complex_ids['antibody']['chains']
     biobb_pdb_selchain.biobb_pdb_selchain(**paths, properties=prop)
-
-    global_log.info('step2_1_fix_side_chain: Model the missing side chain atoms')
-    paths = global_paths['step2_1_fix_side_chain']
-    fix_side_chain(**paths, properties=global_prop['step2_1_fix_side_chain'])
 
     global_log.info('step2_2_charmm36: Force field of the GROMACS steps')
     paths = global_paths['step2_2_charmm36']

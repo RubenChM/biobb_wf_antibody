@@ -148,20 +148,27 @@ def haddock_workflow(global_log, global_prop, global_paths, complex_ids=None):
             global_log.info(f'  Model {complex_ids[name]["model"]} of the {name} entry '
                             f'{complex_ids[name]["pdb_code"]} will be extracted')
 
+    for name in ('antibody', 'antigen'):
+        step = f'step1_repair_{name}'
+        global_log.info(f'{step}: Reconstruct missing residues before contact mapping')
+        utils.repair_backbone(**global_paths[step], chains=complex_ids[name]['chains'],
+                              model=complex_ids[name]['model'], assembly=name == 'antigen',
+                              properties=global_prop[step])
+
     global_log.info("step1_0_prepare_antibody: Prepare the antibody structure")
     paths = global_paths["step1_0_prepare_antibody"]
     prepare_antibody(paths['input_pdb_path'], paths['output_pdb_path'],
                      complex_ids['antibody']['chains'],
                      global_paths["step1_1_biobb_pdb_merge_antibody"],
                      global_prop["step1_1_biobb_pdb_merge_antibody"],
-                     model=complex_ids['antibody']['model'])
+                     model=None)
     antibody_prep = paths['output_pdb_path']
 
     global_log.info("step1_2_prepare_antigen: Prepare the antigen structure")
     paths = global_paths["step1_2_prepare_antigen"]
     prepare_antigen(paths['input_pdb_path'], paths['output_pdb_path'],
                     complex_ids['antigen']['chains'],
-                    model=complex_ids['antigen']['model'])
+                    model=None)
     antigen_prep = paths['output_pdb_path']
 
     global_log.info("step1_3_prepare_reference_antibody: Prepare the antibody of the reference complex")

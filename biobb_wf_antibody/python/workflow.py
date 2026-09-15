@@ -34,6 +34,9 @@ def download_pdbs(global_log, global_prop, global_paths, complex_ids):
                             ('antigen', 'step0_3_pdb_antigen', 'antigen')]:
         prop = global_prop[step]
         prop['pdb_code'] = complex_ids[key]['pdb_code']
+        # Explicit model selections use the original entry, not an assembly.
+        prop['assembly'] = 1 if complex_ids[key]['model'] is None else None
+        prop['filter'] = ['ATOM', 'MODEL', 'ENDMDL', 'SEQRES']
         global_log.info(f"{step}: Download the {name} structure {prop['pdb_code']} from the PDB")
         pdb(**global_paths[step], properties=prop)
         structures[name] = global_paths[step]['output_pdb_path']

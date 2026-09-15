@@ -197,6 +197,27 @@ def plot_dockq_vs_score(dir, ax = None, colors = ['blue', 'orange'], label = Non
     return ax
 
 
+def display_actpass(pdb, actpass, opacity=1):
+    with open(actpass, 'r') as file:
+        actpass = file.read().splitlines()
+        act_res = actpass[0].replace(' ', ', ')
+        pas_res = actpass[1].replace(' ', ', ')
+
+    # Load the PDB files
+    view = nv.show_structure_file(pdb, default_representation=False)
+    view.clear()
+    view.add_cartoon(color='black')
+    view.add_ball_and_stick(color='grey',opacity=opacity)
+    view.add_surface(selection=f'not ( {pas_res}, {act_res} )', color='white', opacity=opacity)
+    if act_res != '':
+        view.add_surface(selection=f'{act_res}', color='red')
+    if pas_res != '':
+        view.add_surface(selection=f'{pas_res}', color='green', opacity=opacity)
+    view.layout.width = '100%'
+    view.center()
+    return view
+
+
 def show_clusters(cluster_pdb, aligned_pdb, anarcii_pdb, loop_ranges=CDR_RANGES):
     """Align the cluster representatives of `cluster_pdb` and show them in one NGL view.
 
