@@ -9,7 +9,7 @@ dependencies:
   - ipywidgets
   - jupyter
   - plotly
-  - biobb_io
+  - biobb_io >=5.3.1
 
   # Gromacs
   - biobb_analysis >=5.3.0

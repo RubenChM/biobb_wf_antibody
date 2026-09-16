@@ -58,9 +58,8 @@ def prepare_antibody(input_pdb_path: str, output_pdb_path: str, chains: str,
     with fu.change_dir(step_path):
         for ch in [ch.strip() for ch in chains.split(',')]:
             chain_pdb_paths.append(os.path.join(step_path, f'chain_{ch}.pdb'))
-            # 0. Extract the requested model + steps
             steps = [
-                (biobb_pdb_selmodel.biobb_pdb_selmodel, {'models': model}),     # 0. Extract the requested model
+                (biobb_pdb_selmodel.biobb_pdb_selmodel,   {'models': model}),   # 0. Extract the requested model
                 (biobb_pdb_tidy.biobb_pdb_tidy,           {'strict': True}),    # 1. Adhere to the format specifications
                 (biobb_pdb_selchain.biobb_pdb_selchain,   {'chains': ch}),      # 2. Extract chain
                 (biobb_pdb_delhetatm.biobb_pdb_delhetatm, {}),                  # 3. Remove all HETATM records 

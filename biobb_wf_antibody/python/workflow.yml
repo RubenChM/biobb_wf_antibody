@@ -34,16 +34,22 @@ step0_1_pdb_reference:
   tool: pdb
   paths:
     output_pdb_path: reference.pdb
+  properties:
+     api_id: pdb
 
 step0_2_pdb_antibody:
   tool: pdb
   paths:
     output_pdb_path: antibody.pdb
+  properties:
+     api_id: pdb
 
 step0_3_pdb_antigen:
   tool: pdb
   paths:
     output_pdb_path: antigen.pdb
+  properties:
+     api_id: pdb
 
 # ============================================================================
 # Subworkflow 1 (1_haddock.py): antibody-antigen docking with HADDOCK3
@@ -466,8 +472,6 @@ step3_0_recover_chains:
     input_antigen_pdb_path: dependency/step1_repair_antigen/output_pdb_path
     output_best_model_path: complex_best_model.pdb
     output_chain_pdb_path: complex_fixed_chains.pdb
-  properties:
-    modeller_key: None
 
 step3_1_charmm36:
   paths:
