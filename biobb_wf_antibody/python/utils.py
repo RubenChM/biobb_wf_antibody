@@ -63,13 +63,7 @@ def parse_seqres(pdb_text):
     """Return {chain_id: one_letter_sequence} from PDB text or SEQRES text.
 
     Uses the PDB fixed-width fields, preserving a blank chain ID as ' '.
-    Other records are ignored; no SEQRES records returns {}. Unknown residue
-    names become X (Biopython's seq1 convention). Raises ValueError for missing,
-    duplicate or out-of-order records, inconsistent declared lengths, or an
-    incomplete sequence. This reads the deposited sequence, including residues
-    without coordinates; it does not assign author residue numbers.
-
-    Example: parse_seqres(Path('antibody.pdb').read_text())
+    Other records are ignored; no SEQRES records returns {}.
     """
     residues, lengths, serials = {}, {}, {}
     for line_number, line in enumerate(pdb_text.splitlines(), 1):
@@ -94,7 +88,20 @@ def parse_seqres(pdb_text):
         if len(names) != lengths[chain]:
             raise ValueError(f'Chain {chain!r}: SEQRES declares {lengths[chain]} '
                              f'residues but contains {len(names)}')
-    return {chain: seq1(''.join(names)) for chain, names in residues.items()}
+    # Non-standard residues that parameterize as a standard one
+    aliases = {'CSD': 'MET', 'MSE': 'MET', 'PCA': 'CYS'}
+    standard = set('ACDEFGHIKLMNPQRSTVWY')
+    aliased = {chain: [aliases.get(name, name) for name in names]
+               for chain, names in residues.items()}
+    unknown = [f'{chain}:{position} {name}'
+               for chain, names in aliased.items()
+               for position, name in enumerate(names, 1)
+               if seq1(name) not in standard]
+    if unknown:
+        raise ValueError(f'Non-standard SEQRES residue(s) {", ".join(unknown)}; '
+                         'map each of them to the standard residue it '
+                         'parameterizes in the alias table above')
+    return {chain: seq1(''.join(names)) for chain, names in aliased.items()}
 
 
 def write_seqres_fasta(pdb_path, chains, fasta_path):
@@ -109,9 +116,9 @@ def write_seqres_fasta(pdb_path, chains, fasta_path):
     return str(fasta_path)
 
 
-def repair_backbone(input_pdb_path, output_pdb_path, chains, model=None,
+def repair_structure(input_pdb_path, output_pdb_path, chains, model=None,
                     assembly=False, properties=None):
-    """Repair selected original chains before HADDOCK renumbers or fuses them.
+    """Repair backbone and side chains before HADDOCK renumbers or fuses them.
 
     Read canonical sequences from the unfiltered entry; retain chain IDs for
     later MD and AWH recovery. Explicit models take precedence over assemblies.
@@ -121,6 +128,7 @@ def repair_backbone(input_pdb_path, output_pdb_path, chains, model=None,
     from biobb_pdb_tools.pdb_tools.biobb_pdb_mkensemble import biobb_pdb_mkensemble
     from biobb_pdb_tools.pdb_tools.biobb_pdb_selchain import biobb_pdb_selchain
     from biobb_model.model.fix_backbone import fix_backbone
+    from biobb_model.model.fix_side_chain import fix_side_chain
 
     output = Path(output_pdb_path).resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -129,21 +137,26 @@ def repair_backbone(input_pdb_path, output_pdb_path, chains, model=None,
     prep = dict(properties or {}, restart=False)
     with TemporaryDirectory(dir=output.parent) as folder:
         selected_model = str(Path(folder) / 'model.pdb')
-        selected_chains = str(Path(folder) / 'chains.pdb')
         if assembly and model is None:
             biobb_pdb_mkensemble(input_file_path=str(input_pdb_path),
                                 output_file_path=selected_model, properties=prep)
         else:
             biobb_pdb_selmodel(input_file_path=str(input_pdb_path),
-                              output_file_path=selected_model,
-                              properties=dict(prep, models=model or '1'))
+                                output_file_path=selected_model,
+                                properties=dict(prep, models=model or '1'))
+        selected_chains = str(Path(folder) / 'chains.pdb')
         biobb_pdb_selchain(input_file_path=selected_model, output_file_path=selected_chains,
-                          properties=dict(prep, chains=chains))
+                            properties=dict(prep, chains=chains))
+        backbone = Path(folder) / 'backbone.pdb'
         result = fix_backbone(input_pdb_path=selected_chains,
-                              input_fasta_canonical_sequence_path=fasta,
-                              output_pdb_path=str(output), properties=properties)
-        if result != 0 or not output.is_file():
+                                input_fasta_canonical_sequence_path=fasta,
+                                output_pdb_path=str(backbone), properties=dict(prep,extra_gap=4))
+        if result != 0 or not backbone.is_file():
             raise RuntimeError(f'Backbone repair failed for {input_pdb_path}')
+        result = fix_side_chain(input_pdb_path=str(backbone),
+                                output_pdb_path=str(output), properties=prep)
+        if result != 0 or not output.is_file():
+            raise RuntimeError(f'Side-chain repair failed for {input_pdb_path}')
     return str(output)
 
 

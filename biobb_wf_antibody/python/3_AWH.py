@@ -112,6 +112,7 @@ def awh_interval(global_log, complex_pdb_path, equilibrated_gro_path,
     com_distance = np.linalg.norm(com_vector)
 
     awh_min = com_distance - minimum_distance + awh_minimum_distance(minimum_distance)
+    awh_min = min(awh_min, com_distance - 0.01)  # 0.001 nm buffer
     awh_max = com_distance + upper_margin
     global_log.info(f'  Closest paratope-epitope contact: {minimum_distance:.2f} A')
     global_log.info(f'  Chain A - chain B centre of mass distance: {com_distance:.2f} A')

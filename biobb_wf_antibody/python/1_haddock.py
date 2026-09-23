@@ -149,8 +149,8 @@ def haddock_workflow(global_log, global_prop, global_paths, complex_ids=None):
 
     for name in ('antibody', 'antigen'):
         step = f'step1_repair_{name}'
-        global_log.info(f'{step}: Reconstruct missing residues before contact mapping')
-        utils.repair_backbone(**global_paths[step], chains=complex_ids[name]['chains'],
+        global_log.info(f'{step}: Repair backbone and side chains before contact mapping')
+        utils.repair_structure(**global_paths[step], chains=complex_ids[name]['chains'],
                               model=complex_ids[name]['model'], assembly=name == 'antigen',
                               properties=global_prop[step])
 

@@ -3,6 +3,7 @@
 .jupyter/
 .vscode/
 **/data/
+**/executed/
 **/output*/
 **/ff/
 results/
