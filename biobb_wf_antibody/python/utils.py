@@ -573,6 +573,34 @@ def check_ndx_groups(global_log, structure_path, ndx_path, expected):
     return groups
 
 
+# TODO: this can me done more directly with gromologist. Make BioBB?
+def chains_ndx_selection(structure_path, chain_ranges, chain_names, binary_path):
+    """Build a make_ndx selection that names one group per residue-index chain range.
+
+    The group index to rename varies with the structure composition (e.g. the
+    presence or not of ions), so it is probed with a throwaway make_ndx.
+    """
+    import subprocess
+    from tempfile import TemporaryDirectory
+
+    binary = shutil.which(binary_path) or binary_path
+    with TemporaryDirectory() as probe_dir:
+        probe_ndx = os.path.join(probe_dir, 'default.ndx')
+        result = subprocess.run(
+            [binary, 'make_ndx', '-f', str(structure_path), '-o', probe_ndx],
+            input='q\n', text=True, capture_output=True)
+        if result.returncode != 0:
+            raise RuntimeError(f'make_ndx could not list the default groups of '
+                               f'{structure_path}:\n{result.stderr}')
+        base = len(read_ndx(probe_ndx))
+    lines = []
+    for offset, (ri_range, name) in enumerate(zip(chain_ranges, chain_names)):
+        lines.append(f'ri {ri_range}')
+        lines.append(f'name {base + offset} {name}')
+    lines.append('q')
+    return '\n'.join(lines)
+
+
 # ============================================================================
 # AWH pulling
 # ============================================================================

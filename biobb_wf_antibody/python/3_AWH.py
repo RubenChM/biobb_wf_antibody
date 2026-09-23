@@ -279,8 +279,9 @@ def awh_workflow(global_log, global_prop, global_paths, complex_ids=None):
         chain_ranges.append(f'{resindices[0] + 1}-{resindices[-1] + 1}')
     paths = global_paths['step3_18_make_ndx_chains']
     prop = global_prop['step3_18_make_ndx_chains']
-    prop['selection'] = (f'ri {chain_ranges[0]}\nname 17 chA\n'
-                         f'ri {chain_ranges[1]}\nname 18 chB\nq')
+    prop['selection'] = utils.chains_ndx_selection(paths['input_structure_path'],
+                                             chain_ranges, ['chA', 'chB'],
+                                             prop['binary_path'])
     global_log.info(f'  chA: residues {chain_ranges[0]}, chB: residues {chain_ranges[1]}')
     make_ndx(**paths, properties=prop)
     chains_ndx = paths['output_ndx_path']
