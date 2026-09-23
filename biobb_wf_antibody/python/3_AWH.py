@@ -372,7 +372,7 @@ def awh_workflow(global_log, global_prop, global_paths, complex_ids=None):
     # The extra 'Antibody' group is what the clustering writes out: gmx_cluster writes
     # whole groups, and the antigen has no business being in the ensemble that is
     # docked against it further down
-    prop['selection'] = cdr_ndx_selection(cdr_ri, fr_ri, cdr.ri_selection,
+    prop['selection'] = utils.cdr_ndx_selection(cdr_ri, fr_ri, cdr.ri_selection,
                                           antibody_res=n_antibody_res)
     make_ndx(input_structure_path=dry_gro, output_ndx_path=paths['output_ndx_path'],
              properties=prop)
