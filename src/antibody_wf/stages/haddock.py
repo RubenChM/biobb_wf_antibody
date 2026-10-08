@@ -150,9 +150,12 @@ def haddock_workflow(global_log, global_prop, global_paths, complex_ids=None):
     for name in ('antibody', 'antigen'):
         step = f'step1_repair_{name}'
         global_log.info(f'{step}: Repair backbone and side chains before contact mapping')
+        repair_properties = dict(global_prop[step])
+        if os.environ.get('MODELLER_KEY'):
+            repair_properties['modeller_key'] = os.environ['MODELLER_KEY']
         utils.repair_structure(**global_paths[step], chains=complex_ids[name]['chains'],
-                              model=complex_ids[name]['model'], assembly=name == 'antigen',
-                              properties=global_prop[step])
+                               model=complex_ids[name]['model'], assembly=name == 'antigen',
+                               properties=repair_properties)
 
     global_log.info("step1_0_prepare_antibody: Prepare the antibody structure")
     paths = global_paths["step1_0_prepare_antibody"]

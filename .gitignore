@@ -2,20 +2,16 @@
 .pixi/
 .jupyter/
 .vscode/
-**/data/
-**/executed/
-**/output*/
-**/ff/
+**/output/
 results/
 log/
 log*
 **/.ipynb_checkpoints
-.jupyter_ystore.db
 run/
 **.pdb
 **.pyc
-awh*
 *sandbox*
+modeller_key.txt
 
 # Python installation artifacts
 build/

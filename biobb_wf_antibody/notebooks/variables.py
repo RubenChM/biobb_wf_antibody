@@ -1,6 +1,6 @@
 from pathlib import Path
 
-case_id = 7
+case_id = 14
 complexes = (
     # Reference         Antibody   Antigen
     ("2VXT_HL:I",	   "2VXU_HL", "1J0S_A"),
@@ -28,8 +28,8 @@ reference, antibody, antigen = complexes[case_id]
 # Downloaded structures and the working directory of the case
 # ============================================================================
 
-data_path = Path('data/')
-base_dir = data_path / '0_base'
+data_path = Path(__file__).resolve().parents[1] / 'output'
+base_dir = data_path / 'structures'
 out_path = data_path / f'case_{case_id}'
 
 
@@ -52,7 +52,7 @@ antibody_pdb_clean = str(dock_inp / 'antibody.pdb')
 antigen_pdb_clean = str(dock_inp / 'antigen.pdb')
 reference_pdb_antibody = str(dock_dir / 'reference_antibody.pdb')
 reference_pdb_antigen = str(dock_dir / 'reference_antigen.pdb')
-zip_file_path = str(dock_dir / 'reference.zip')  # the two halves, fed to pdb_merge
+zip_file_path = str(dock_dir / 'reference_merged.zip')  # the two halves, fed to pdb_merge
 reference_pdb_clean = str(dock_inp / 'reference.pdb')
 reference_interface = str(dock_dir / 'reference_interface.txt')
 antibody_actpass = str(dock_dir / 'antibody_actpass.txt')
@@ -128,7 +128,6 @@ MD_dock_dir = MD_dir / 'docking'
 # ============================================================================
 
 AWH_dir = out_path / '3_AWH'
-AWH_fixed_pdb = str(AWH_dir / 'complex_fixed.pdb')
 AWH_output_pdb2gmx_gro = str(AWH_dir / 'complex_pdb2gmx.gro')
 AWH_output_pdb2gmx_top_zip = str(AWH_dir / 'complex_pdb2gmx_top.zip')
 AWH_output_editconf_gro = str(AWH_dir / 'complex_editconf.gro')

@@ -22,7 +22,7 @@ from antibody_wf.utils import resolve_complex
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
-PROJECT_DIR = Path(__file__).resolve().parents[3]
+PROJECT_DIR = Path(__file__).resolve().parents[3] / "biobb_wf_antibody"
 OUTPUT_DIR = PROJECT_DIR / "output" / "results"
 
 from antibody_wf.plotting import plot_dockq_vs_score  # noqa: E402

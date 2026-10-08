@@ -1,10 +1,17 @@
 # pixi-pack instructions
 ``` shell
-cd ../env
+# Create the portable environment
+cd ../../env
 pixi lock
 ./build_haddock3_wheel.sh           # see "haddock3" below; only when its version changes
 pixi-pack --create-executable --inject haddock3-*.whl
-scp environment.sh user@<cluster>:/path/to/biobb_wf_antibody/
+
+# Move the packed environment to the cluster, and sync the workflow code
+CLUSTER_PATH=mn5t:/gpfs/projects/irb93/ruben/ab_wf  # user@<cluster>:/path/to/biobb_wf_antibody/
+scp environment.sh $CLUSTER_PATH/
+# Only transfers files that changed (size/mtime), no trailing slash on the sources
+rsync -avz ../biobb_wf_antibody ../src $CLUSTER_PATH/ --exclude __pycache__
+
 # On cluster, run:
 ./environment.sh                    # unpacks into ./env/, writes ./activate.sh
 source activate.sh                  # activate; no conda/pixi needed on the host

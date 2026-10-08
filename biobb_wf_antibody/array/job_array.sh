@@ -48,6 +48,7 @@ source activate.sh
 cd /gpfs/projects/irb93/ruben/ab_wf/array
 mkdir -p array_logs
 
+export MODELLER_KEY=$(cat ../config/modeller_key.txt)
 # One complex of the launcher's 'complexes' list per array task, every
 # one of them in its own 'output/case_<index>' working directory
 python launch_wf.py --index "$SLURM_ARRAY_TASK_ID" --out-dir ../output \
