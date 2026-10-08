@@ -17,3 +17,4 @@ modeller_key.txt
 build/
 *.egg-info
 *.whl
+environment.sh

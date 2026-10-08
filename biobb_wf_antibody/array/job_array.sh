@@ -2,8 +2,8 @@
 #SBATCH --account=irb93
 #SBATCH --qos=gp_resa
 #SBATCH --job-name=ab_array
-#SBATCH --output=array_logs/ab_%A_%a.out
-#SBATCH --error=array_logs/ab_%A_%a.err
+#SBATCH --output=../output/array_logs/ab_%A_%a.out
+#SBATCH --error=../output/array_logs/ab_%A_%a.err
 #SBATCH --array=0-15
 #SBATCH --ntasks=4
 #SBATCH --cpus-per-task=112
@@ -43,11 +43,13 @@ export GMX_BIN=$(which gmx_mpi)
 export MPI_BIN=$(which srun)
 
 # Activate conda environment
-cd /gpfs/projects/irb93/ruben
-source activate.sh   
-cd /gpfs/projects/irb93/ruben/ab_wf/array
-mkdir -p array_logs
+PROJECT_PATH=/gpfs/projects/irb93/ruben/ab_wf
+cd $PROJECT_PATH
+source activate.sh
+cd $PROJECT_PATH/array
+mkdir -p ../output/array_logs
 
+# Read the MODELLER license key from a file
 export MODELLER_KEY=$(cat ../config/modeller_key.txt)
 # One complex of the launcher's 'complexes' list per array task, every
 # one of them in its own 'output/case_<index>' working directory

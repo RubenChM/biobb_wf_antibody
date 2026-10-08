@@ -1,16 +1,23 @@
-# pixi-pack instructions
+# Cluster instructions
 ``` shell
+# Set the remote path to the cluster: user@<cluster>:/path/to/biobb_wf_antibody/
+HPC_PATH=mn5t:/gpfs/projects/irb93/ruben/ab_wf
 # Create the portable environment
 cd ../../env
 pixi lock
 ./build_haddock3_wheel.sh           # see "haddock3" below; only when its version changes
 pixi-pack --create-executable --inject haddock3-*.whl
+scp environment.sh $HPC_PATH/
 
-# Move the packed environment to the cluster, and sync the workflow code
-CLUSTER_PATH=mn5t:/gpfs/projects/irb93/ruben/ab_wf  # user@<cluster>:/path/to/biobb_wf_antibody/
-scp environment.sh $CLUSTER_PATH/
-# Only transfers files that changed (size/mtime), no trailing slash on the sources
-rsync -avz ../biobb_wf_antibody ../src $CLUSTER_PATH/ --exclude __pycache__
+# Sync the workflow code. Only transfers files that changed (size/mtime)
+cd ..
+rsync -avz biobb_wf_antibody src $HPC_PATH/  --exclude __pycache__
+
+# Dowload and sync the PDB starting structures
+for ID in $(seq 0 15); do
+    python array/launch_wf.py --index $ID --out-dir ../../output/hpc -d
+done
+rsync -avz output/hpc/ $HPC_PATH/output/
 
 # On cluster, run:
 ./environment.sh                    # unpacks into ./env/, writes ./activate.sh
