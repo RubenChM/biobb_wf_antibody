@@ -16,4 +16,8 @@ run/
 **.pyc
 awh*
 *sandbox*
+
+# Python installation artifacts
+build/
+*.egg-info
 *.whl

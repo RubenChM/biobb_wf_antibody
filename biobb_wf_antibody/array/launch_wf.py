@@ -9,13 +9,10 @@
 
 import argparse
 import os
-import sys
 import yaml
 
-# The workflow and its configuration file live next to this script, in python/
-PYTHON_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'python')
-PYTHON_DIR = os.path.normpath(PYTHON_DIR)
-TEMPLATE_CONFIG = os.path.join(PYTHON_DIR, 'workflow.yml')
+PROJECT_DIR = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
+TEMPLATE_CONFIG = os.path.join(PROJECT_DIR, 'config', 'workflow.yml')
 COMPLEXES = (
     # Reference         Antibody   Antigen
     ("2VXT_HL:I",	   "2VXU_HL", "1J0S_A"),
@@ -95,7 +92,7 @@ def write_case_config(index, out_dir, gmx_bin=None, mpi_bin=None, ncores=None,
         for override, tools in [('cfg', ('haddock3_run',)), ('mdp', ('grompp',))]:
             if override in properties and tool in tools:
                 properties.pop(override)
-        # The 'ncores' of inputs/haddock_config.cfg is the one of a workstation, on the
+        # The 'ncores' of config/haddock_config.cfg is the one of a workstation, on the
         # cluster the docking gets the cores SLURM reserved for the task. A plain key
         # of 'cfg' is a top-level HADDOCK3 parameter, not a section of the run
         if ncores and tool == 'haddock3_run':
@@ -109,7 +106,7 @@ def write_case_config(index, out_dir, gmx_bin=None, mpi_bin=None, ncores=None,
 
     # 'file:<path>' paths are handed over to the building block as they are, so they
     # are relative to the current directory and not to the working one. Every one of
-    # them names a file of python/inputs (the HADDOCK3 configuration and the mdp
+    # them names a file of config (the HADDOCK3 configuration and the mdp
     # files), and the case runs from wherever SLURM started it, so they are made
     # absolute here.
     for section in config.values():
@@ -118,7 +115,7 @@ def write_case_config(index, out_dir, gmx_bin=None, mpi_bin=None, ncores=None,
         paths = section.get('paths') or {}
         for key, value in paths.items():
             if isinstance(value, str) and value.startswith('file:'):
-                paths[key] = 'file:' + os.path.join(PYTHON_DIR, value[len('file:'):])
+                paths[key] = 'file:' + os.path.join(PROJECT_DIR, value[len('file:'):])
 
     config_path = os.path.join(case_dir, 'workflow.yml')
     with open(config_path, 'w') as f:
@@ -138,8 +135,7 @@ def main(index, out_dir, dry_run=False, download_only=False, gmx_bin=None, mpi_b
     if dry_run: return config_path
     # The workflow modules are imported instead of being run in another process, so
     # the task keeps the environment SLURM started it with
-    sys.path.insert(0, PYTHON_DIR)
-    import workflow
+    from antibody_wf import workflow
     workflow.main(config_path, download_only=download_only)
     return config_path
 
@@ -149,9 +145,9 @@ if __name__ == '__main__':
     parser.add_argument('--index', type=int, default=os.environ.get('SLURM_ARRAY_TASK_ID'),
                         help="index of the complex in the COMPLEXES list of this script, "
                              "defaults to $SLURM_ARRAY_TASK_ID")
-    parser.add_argument('--out-dir', default='.',
+    parser.add_argument('--out-dir', default=os.path.join(PROJECT_DIR, 'output'),
                         help="folder the 'case_<index>' working directories are created "
-                             "in, defaults to the current one")
+                             "in, defaults to the project output folder")
     parser.add_argument('--dry-run', action='store_true',
                         help="only write the configuration file of the complex")
     parser.add_argument('--download-only', '-d', action='store_true',
@@ -171,7 +167,7 @@ if __name__ == '__main__':
     parser.add_argument('--ncores', type=int, default=os.environ.get('SLURM_CPUS_PER_TASK'),
                         help="cores of the HADDOCK3 dockings, defaults to "
                              "$SLURM_CPUS_PER_TASK and, without it, to the 'ncores' of "
-                             "inputs/haddock_config.cfg")
+                             "config/haddock_config.cfg")
 
     args = parser.parse_args()
     if args.index is None:

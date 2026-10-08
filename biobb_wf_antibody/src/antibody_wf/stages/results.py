@@ -4,31 +4,28 @@
 
 This is a manual fourth workflow step.  It scans ``case_<index>`` directories,
 plots the HADDOCK score against DockQ for each available docking protocol, and
-writes the figures under ``python/4_results/case_<index>`` and joins them into
-``python/results/results.png`` with four columns per case.
+writes the figures under ``output/results/case_<index>`` and joins them into
+``output/results/results.png`` with four columns per case.
 """
 
 import argparse
 import re
-import sys
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 import matplotlib
 import yaml
 
-from utils import resolve_complex
+from antibody_wf.utils import resolve_complex
 
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
-SCRIPT_DIR = Path(__file__).resolve().parent
-NOTEBOOKS_DIR = SCRIPT_DIR.parent / "notebooks"
-OUTPUT_DIR = SCRIPT_DIR / "results"
-sys.path.insert(0, str(NOTEBOOKS_DIR))
+PROJECT_DIR = Path(__file__).resolve().parents[3]
+OUTPUT_DIR = PROJECT_DIR / "output" / "results"
 
-from plotting import plot_dockq_vs_score  # noqa: E402
+from antibody_wf.plotting import plot_dockq_vs_score  # noqa: E402
 
 
 PROTOCOLS = (
@@ -322,8 +319,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--results-dir",
         "-d",
-        default=SCRIPT_DIR.parent / "array" / "results",
-        help="folder containing case_<index> directories (default: array/results)",
+        default=PROJECT_DIR / "output",
+        help="folder containing case_<index> directories (default: output)",
     )
     parser.add_argument(
         "--overwrite",

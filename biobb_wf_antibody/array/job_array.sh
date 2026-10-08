@@ -36,7 +36,7 @@ module purge
 module load gcc/14.1.0_binutils241 ucx/1.16.0-gcc openmpi/5.0.5-gcc fftw/3.3.10-gcc-ompi505 boost/1.86.0-gcc-ompi mkl/2023.2.0
 module load gromacs/2025.4-gcc-ompi
 
-# Binaries of the modules above, resolved here and not inside python/workflow.yml, so
+# Binaries of the modules above, resolved here and not inside config/workflow.yml, so
 # the sections of the case keep the launchers of the node the task runs on and not the
 # ones the conda environment puts on the PATH
 export GMX_BIN=$(which gmx_mpi)
@@ -48,8 +48,8 @@ source activate.sh
 cd /gpfs/projects/irb93/ruben/ab_wf/array
 mkdir -p array_logs
 
-# One complex of the 'complexes' list of python/workflow.yml per array task, every
-# one of them in its own 'results/case_<index>' working directory
-python launch_wf.py --index "$SLURM_ARRAY_TASK_ID" --out-dir results \
+# One complex of the launcher's 'complexes' list per array task, every
+# one of them in its own 'output/case_<index>' working directory
+python launch_wf.py --index "$SLURM_ARRAY_TASK_ID" --out-dir ../output \
     --gmx-bin "$GMX_BIN" --mpi-bin "$MPI_BIN" --mpi-np "$SLURM_NTASKS" \
     --num-threads-omp "$SLURM_CPUS_PER_TASK" --ncores "$SLURM_CPUS_PER_TASK"

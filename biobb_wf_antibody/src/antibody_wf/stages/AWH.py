@@ -42,16 +42,9 @@ from biobb_gromacs.gromacs.pdb2gmx import pdb2gmx
 from biobb_gromacs.gromacs.solvate import solvate
 from biobb_gromacs.gromacs.trjcat import trjcat
 
-import cdr
-import utils
-
-# The clustering-to-docking stages are identical to the ones of the free MD run, so they
-# are reused instead of being written again. The subworkflow modules are named after
-# their index, so they cannot be pulled in with a plain import statement
-_md = importlib.import_module('2_MD')
-build_docking_ensemble = _md.build_docking_ensemble
-clean_cluster_representatives = _md.clean_cluster_representatives
-stage_docking_input = _md.stage_docking_input
+import antibody_wf.cdr as cdr
+import antibody_wf.utils as utils
+from antibody_wf.stages import MD
 
 
 def awh_minimum_distance(minimum_distance):
@@ -401,20 +394,20 @@ def awh_workflow(global_log, global_prop, global_paths, complex_ids=None):
 
     global_log.info('step3_28_clean_clusters: Prepare the representatives for HADDOCK3')
     paths = global_paths['step3_28_clean_clusters']
-    clean_cluster_representatives(cluster_pdb, paths['output_pdb_path'])
+    MD.clean_cluster_representatives(cluster_pdb, paths['output_pdb_path'])
     clusters_clean = paths['output_pdb_path']
 
     global_log.info('step3_29_build_ensemble: Ensemble of the representatives and the '
                     'experimental structure')
     paths = global_paths['step3_29_build_ensemble']
-    build_docking_ensemble(clusters_clean, paths['input_antibody_pdb_path'],
+    MD.build_docking_ensemble(clusters_clean, paths['input_antibody_pdb_path'],
                            paths['output_zip_path'], paths['output_pdb_path'],
                            properties=global_prop['step3_29_build_ensemble'])
     ensemble_pdb = paths['output_pdb_path']
 
     global_log.info('step3_30_haddock3_run: Dock the CDR-loop ensemble against the antigen')
     paths = global_paths['step3_30_haddock3_run']
-    stage_docking_input(paths, global_prop['step3_30_haddock3_run'], ensemble_pdb)
+    MD.stage_docking_input(paths, global_prop['step3_30_haddock3_run'], ensemble_pdb)
 
     return {
         'complex_pdb_path': fixed_pdb,

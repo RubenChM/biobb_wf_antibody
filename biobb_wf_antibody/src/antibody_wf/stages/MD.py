@@ -17,6 +17,8 @@ paths, so this subworkflow also runs on its own on a working directory where
 import argparse
 import os
 import shutil
+import os
+import shutil
 import time
 import zipfile
 
@@ -46,9 +48,8 @@ from biobb_pdb_tools.pdb_tools import biobb_pdb_tidy
 from biobb_pdb_tools.pdb_tools.biobb_pdb_mkensemble import biobb_pdb_mkensemble
 from biobb_pdb_tools.pdb_tools.biobb_pdb_splitmodel import biobb_pdb_splitmodel
 
-import cdr
-from utils import (cdr_ndx_selection, ensure_force_field, pdb_tools_pipeline,
-                   report_execution, resolve_complex, check_ndx_groups)
+import antibody_wf.cdr as cdr
+import antibody_wf.utils as utils
 
 
 def clean_cluster_representatives(input_pdb_path, output_pdb_path):
@@ -69,7 +70,7 @@ def clean_cluster_representatives(input_pdb_path, output_pdb_path):
             (biobb_pdb_chainxseg.biobb_pdb_chainxseg, {}),          # 3. Swap the segment identifier for the chain identifier
             (biobb_pdb_tidy.biobb_pdb_tidy, {'strict': True})       # 4. Adhere to the format specifications
         ]
-        pdb_tools_pipeline(input_pdb_path, output_pdb_path, steps)
+        utils.pdb_tools_pipeline(input_pdb_path, output_pdb_path, steps)
 
 
 def build_docking_ensemble(cluster_pdb_path, experimental_pdb_path, zip_path, output_pdb_path,
@@ -123,7 +124,7 @@ def md_workflow(global_log, global_prop, global_paths, complex_ids=None):
     workflow.py.
     """
     if complex_ids is None:
-        complex_ids = resolve_complex(global_prop['step2_0_biobb_pdb_selchain'])
+        complex_ids = utils.resolve_complex(global_prop['step2_0_biobb_pdb_selchain'])
 
     global_log.info('step2_0_biobb_pdb_selchain: Extract the antibody chains '
                     f'{complex_ids["antibody"]["chains"]}')
@@ -136,7 +137,7 @@ def md_workflow(global_log, global_prop, global_paths, complex_ids=None):
     paths = global_paths['step2_2_charmm36']
     prop = global_prop['step2_2_charmm36']
     # Every pdb2gmx and grompp step below is given this directory as its GMXLIB
-    gmx_lib = ensure_force_field(paths['output_ff_path'], prop['url'], prop['force_field'])
+    gmx_lib = utils.ensure_force_field(paths['output_ff_path'], prop['url'], prop['force_field'])
     global_log.info(f'  {prop["force_field"]}.ff under {gmx_lib}')
 
     global_log.info('step2_3_pdb2gmx: Build the GROMACS topology of the antibody')
@@ -227,11 +228,11 @@ def md_workflow(global_log, global_prop, global_paths, complex_ids=None):
     global_log.info(f'  {len(cdr_ri)} CDR + {len(fr_ri)} framework variable-domain residues')
     paths = global_paths['step2_21_make_ndx']
     prop = global_prop['step2_21_make_ndx']
-    prop['selection'] = cdr_ndx_selection(cdr_ri, fr_ri, cdr.ri_selection)
+    prop['selection'] = utils.cdr_ndx_selection(cdr_ri, fr_ri, cdr.ri_selection)
     make_ndx(**paths, properties=prop)
     loop_ndx = paths['output_ndx_path']
-    check_ndx_groups(global_log, dry_gro, loop_ndx,
-                     {'Loop_CA': len(cdr_ri), 'Framework_CA': len(fr_ri)})
+    utils.check_ndx_groups(global_log, dry_gro, loop_ndx,
+                           {'Loop_CA': len(cdr_ri), 'Framework_CA': len(fr_ri)})
 
     global_log.info('step2_22_gmx_image_framework: Superpose the trajectory on the Fv framework')
     # gmx cluster uses a single group for both the least-squares fit and the RMSD, so
@@ -288,7 +289,7 @@ def main(config):
     global_paths = conf.get_paths_dic()
 
     md_workflow(global_log, global_prop, global_paths)
-    report_execution(global_log, conf, config, start_time)
+    utils.report_execution(global_log, conf, config, start_time)
 
 
 if __name__ == '__main__':

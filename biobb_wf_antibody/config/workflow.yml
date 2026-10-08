@@ -2,15 +2,14 @@ global_properties:
   working_dir_path: output
   restart: True
   can_write_console_log: False
-  restart: True
 
 # Single configuration file for the whole workflow. Every step is named
 # 'step<subworkflow index>_<step index>_<step name>', so the sections of each
 # subworkflow are grouped together:
 #   step0_* -> workflow.py    (input structures)
-#   step1_* -> 1_haddock.py   (antibody-antigen docking)
-#   step2_* -> 2_MD.py        (MD of the CDR clusters)
-#   step3_* -> 3_AWH.py       (AWH free energy calculation)
+#   step1_* -> stages/haddock.py   (antibody-antigen docking)
+#   step2_* -> stages/MD.py        (MD of the CDR clusters)
+#   step3_* -> stages/AWH.py       (AWH free energy calculation)
 
 # ============================================================================
 # Subworkflow 0 (workflow.py): download the input structures
@@ -52,10 +51,10 @@ step0_3_pdb_antigen:
      api_id: pdb
 
 # ============================================================================
-# Subworkflow 1 (1_haddock.py): antibody-antigen docking with HADDOCK3
+# Subworkflow 1 (stages/haddock.py): antibody-antigen docking with HADDOCK3
 #
 # The chains to keep from each downloaded entry are derived from the three
-# identifiers by 1_haddock.py: the antibody ones are cleaned separately and
+# identifiers by stages/haddock.py: the antibody ones are cleaned separately and
 # merged into a single chain A, the antigen ones are relabelled as chain B.
 # ============================================================================
 
@@ -142,7 +141,7 @@ step1_11_haddock3_restrain_bodies:
 step1_12_haddock3_run:
   tool: haddock3_run
   paths:
-    haddock_config_path: 'file:inputs/haddock_config.cfg'
+    haddock_config_path: 'file:config/haddock_config.cfg'
     input_haddock_wf_data: haddock_input
     output_haddock_wf_data: haddock_output
   properties:
@@ -155,12 +154,12 @@ step1_12_haddock3_run:
         select: 50
 
 # ============================================================================
-# Subworkflow 2 (2_MD.py): free MD of the unbound antibody, clustering of the
+# Subworkflow 2 (stages/MD.py): free MD of the unbound antibody, clustering of the
 # conformations its CDR loops sample, and docking of that ensemble
 #
-# The chains to keep are derived from the 'antibody' global property by 2_MD.py,
+# The chains to keep are derived from the 'antibody' global property by stages/MD.py,
 # and the antigen, the reference complex and the restraint tables of the docking
-# are the ones the baseline run of 1_haddock.py prepared.
+# are the ones the baseline run of stages/haddock.py prepared.
 # ============================================================================
 
 step2_0_biobb_pdb_selchain:
@@ -169,12 +168,12 @@ step2_0_biobb_pdb_selchain:
     input_file_path: dependency/step1_repair_antibody/output_pdb_path
     output_file_path: antibody_chains.pdb
 
-# Not a building block: the force field lives in python/inputs/ff and the directory
+# Not a building block: the downloaded force field lives in output/ff and the directory
 # is handed to every pdb2gmx and grompp step below as its GMXLIB.
 
 step2_2_charmm36:
   paths:
-    output_ff_path: 'file:inputs/ff'
+    output_ff_path: 'file:output/ff'
   properties:
     force_field: charmm36-jul2017
     url: https://mackerell.umaryland.edu/download.php?filename=CHARMM_ff_params_files/charmm36-jul2017.ff.tgz
@@ -240,7 +239,7 @@ step2_8_grompp_min:
   paths:
     input_gro_path: dependency/step2_7_genion/output_gro_path
     input_top_zip_path: dependency/step2_7_genion/output_top_zip_path
-    input_mdp_path: 'file:inputs/emin-charmm.mdp'
+    input_mdp_path: 'file:config/emin-charmm.mdp'
     output_tpr_path: antibody_gppmin.tpr
   properties:
     binary_path: gmx_mpi
@@ -269,7 +268,7 @@ step2_11_grompp_npt:
   paths:
     input_gro_path: dependency/step2_9_mdrun_min/output_gro_path
     input_top_zip_path: dependency/step2_7_genion/output_top_zip_path
-    input_mdp_path: 'file:inputs/md_eq_posre_charmm36m.mdp'
+    input_mdp_path: 'file:config/md_eq_posre_charmm36m.mdp'
     output_tpr_path: antibody_gppnpt.tpr
   properties:
     binary_path: gmx_mpi
@@ -305,7 +304,7 @@ step2_14_grompp_md:
     input_gro_path: dependency/step2_12_mdrun_npt/output_gro_path
     input_cpt_path: dependency/step2_12_mdrun_npt/output_cpt_path
     input_top_zip_path: dependency/step2_7_genion/output_top_zip_path
-    input_mdp_path: 'file:inputs/md_charmm36m.mdp'
+    input_mdp_path: 'file:config/md_charmm36m.mdp'
     output_tpr_path: antibody_gppmd.tpr
   properties:
     binary_path: gmx_mpi
@@ -374,7 +373,7 @@ step2_20_pdb2gmx_anarcii:
     force_field: charmm36-jul2017
     water_type: tip3p
 
-# The 'selection' property is built by 2_MD.py: it resolves the IMGT CDR
+# The 'selection' property is built by stages/MD.py: it resolves the IMGT CDR
 # (27-38, 56-65, 105-117) and framework (1-26, 39-55, 66-104, 118-129) ranges
 # onto this system and intersects them with the C-alpha group, which gives the
 # Loop_CA / Framework_CA groups the framework fit and the clustering below run on
@@ -438,7 +437,7 @@ step2_25_build_ensemble:
 step2_26_haddock3_run:
   tool: haddock3_run
   paths:
-    haddock_config_path: 'file:inputs/haddock_config.cfg'
+    haddock_config_path: 'file:config/haddock_config.cfg'
     input_antigen_pdb_path: dependency/step1_2_prepare_antigen/output_pdb_path
     input_reference_pdb_path: dependency/step1_6_merge_reference_complex/output_pdb_path
     input_ambig_tbl_path: dependency/step1_10_haddock3_actpass_to_ambig/output_tbl_path
@@ -455,7 +454,7 @@ step2_26_haddock3_run:
         select: 50
 
 # ============================================================================
-# Subworkflow 3 (3_AWH.py): AWH-MD of the best docked complex, clustering of the
+# Subworkflow 3 (stages/AWH.py): AWH-MD of the best docked complex, clustering of the
 # conformations its CDR loops sample with the antigen in place, and docking of
 # that ensemble
 #
@@ -475,7 +474,7 @@ step3_0_recover_chains:
 
 step3_1_charmm36:
   paths:
-    output_ff_path: 'file:inputs/ff'
+    output_ff_path: 'file:output/ff'
   properties:
     force_field: charmm36-jul2017
     url: https://mackerell.umaryland.edu/download.php?filename=CHARMM_ff_params_files/charmm36-jul2017.ff.tgz
@@ -541,7 +540,7 @@ step3_7_grompp_min:
   paths:
     input_gro_path: dependency/step3_6_genion/output_gro_path
     input_top_zip_path: dependency/step3_6_genion/output_top_zip_path
-    input_mdp_path: 'file:inputs/emin-charmm.mdp'
+    input_mdp_path: 'file:config/emin-charmm.mdp'
     output_tpr_path: complex_gppmin.tpr
   properties:
     binary_path: gmx_mpi
@@ -605,7 +604,7 @@ step3_13_grompp_npt:
   paths:
     input_gro_path: dependency/step3_11_mdrun_nvt/output_gro_path
     input_top_zip_path: dependency/step3_6_genion/output_top_zip_path
-    input_mdp_path: 'file:inputs/md_eq_posre_charmm36m.mdp'
+    input_mdp_path: 'file:config/md_eq_posre_charmm36m.mdp'
     output_tpr_path: complex_npt.tpr
   properties:
     binary_path: gmx_mpi
@@ -634,7 +633,7 @@ step3_15_gmx_energy_npt:
   properties:
     terms: [Pressure, Density]
 
-# Not a building block: 3_AWH.py measures the antibody-antigen centre of mass
+# Not a building block: stages/AWH.py measures the antibody-antigen centre of mass
 # distance on the equilibrated complex and turns it into the edges of the AWH
 # sampling interval. The interface it opens the interval from is the paratope and
 # the epitope the docking restraints were built from.
@@ -650,11 +649,11 @@ step3_16_awh_interval:
 
 step3_17_awh_mdp:
   paths:
-    input_mdp_template_path: 'file:inputs/md_awh_mult.mdp.in'
+    input_mdp_template_path: 'file:config/md_awh_mult.mdp.in'
     output_mdp_path: awh_md_mult.mdp
 
 # The two pull groups of the AWH coordinate, one per chain of the complex. The
-# 'selection' property is built by 3_AWH.py from the residue ordinals of each
+# 'selection' property is built by stages/AWH.py from the residue ordinals of each
 # chain, as neither the .gro nor the tpr carries chain identifiers.
 
 step3_18_make_ndx_chains:
@@ -680,7 +679,7 @@ step3_19_grompp_awh:
     # One MPI process per walker, so this has to match the 'mpi_np' of the step below
     n_walkers: 4
   # 'input_tpr_path' and 'input_multifolder' point at the walkers folder written by
-  # the step above, 3_AWH.py fills them in
+  # the step above, stages/AWH.py fills them in
     binary_path: gmx_mpi
     mdp:
       nsteps: 5000
@@ -786,7 +785,7 @@ step3_29_build_ensemble:
 step3_30_haddock3_run:
   tool: haddock3_run
   paths:
-    haddock_config_path: 'file:inputs/haddock_config.cfg'
+    haddock_config_path: 'file:config/haddock_config.cfg'
     input_antigen_pdb_path: dependency/step1_2_prepare_antigen/output_pdb_path
     input_reference_pdb_path: dependency/step1_6_merge_reference_complex/output_pdb_path
     input_ambig_tbl_path: dependency/step1_10_haddock3_actpass_to_ambig/output_tbl_path

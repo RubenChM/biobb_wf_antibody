@@ -24,7 +24,7 @@ from biobb_haddock.haddock_restraints.haddock3_passive_from_active import haddoc
 from biobb_haddock.haddock_restraints.haddock3_actpass_to_ambig import haddock3_actpass_to_ambig
 from biobb_haddock.haddock_restraints.haddock3_restrain_bodies import haddock3_restrain_bodies
 from biobb_haddock.haddock.haddock3_run import haddock3_run
-import utils
+import antibody_wf.utils as utils
 
 
 def zip_pdb_files(pdb_paths, zip_file_path):

@@ -1,6 +1,6 @@
 # pixi-pack instructions
 ``` shell
-cd ../conda_env
+cd ../env
 pixi lock
 ./build_haddock3_wheel.sh           # see "haddock3" below; only when its version changes
 pixi-pack --create-executable --inject haddock3-*.whl

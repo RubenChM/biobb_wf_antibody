@@ -6,13 +6,11 @@ import importlib
 from biobb_common.configuration import settings
 from biobb_common.tools import file_utils as fu
 from biobb_io.api.pdb import pdb
-from utils import report_execution, resolve_complex
+from antibody_wf.utils import report_execution, resolve_complex
+from antibody_wf.stages import haddock
+from antibody_wf.stages import MD
+from antibody_wf.stages import AWH 
 
-# The subworkflow modules are named after their index, so they cannot be pulled
-# in with a plain import statement
-haddock = importlib.import_module('1_haddock')
-md = importlib.import_module('2_MD')
-awh = importlib.import_module('3_AWH')
 
 # The structures to dock are named by the 'reference', 'antibody' and 'antigen'
 # global properties of the configuration file, see utils.resolve_complex for how
@@ -58,9 +56,9 @@ def main(config, download_only=False):
     # Subworkflow 1: antibody-antigen docking with HADDOCK3
     haddock_out = haddock.haddock_workflow(global_log, global_prop, global_paths, complex_ids)
     # Subworkflow 2: free MD of the unbound antibody, its CDR-loop clusters docked
-    md_out = md.md_workflow(global_log, global_prop, global_paths, complex_ids)
+    md_out = MD.md_workflow(global_log, global_prop, global_paths, complex_ids)
     # Subworkflow 3: AWH-MD of the best docked complex, its CDR-loop clusters docked.
-    awh_out = awh.awh_workflow(global_log, global_prop, global_paths, complex_ids)
+    awh_out = AWH.awh_workflow(global_log, global_prop, global_paths, complex_ids)
 
     report_execution(global_log, conf, config, start_time, extra_lines=(
         f'Baseline docking: {haddock_out["haddock_wf_data"]}',

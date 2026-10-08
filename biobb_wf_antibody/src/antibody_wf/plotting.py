@@ -11,8 +11,7 @@ import nglview as nv
 from IPython.display import display, Markdown
 from MDAnalysis.analysis import align
 from plotly import subplots
-
-from cdr import CDR_RANGES
+from antibody_wf.cdr import CDR_RANGES
 
 
 def load_xvg(xvg_path):
