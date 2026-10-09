@@ -62,11 +62,15 @@ step1_repair_antibody:
   paths:
     input_pdb_path: dependency/step0_2_pdb_antibody/output_pdb_path
     output_pdb_path: antibody_fixed.pdb
+  properties:
+    fix_known: true
 
 step1_repair_antigen:
   paths:
     input_pdb_path: dependency/step0_3_pdb_antigen/output_pdb_path
     output_pdb_path: antigen_fixed.pdb
+  properties:
+    fix_known: true
 
 step1_0_prepare_antibody:
   paths:

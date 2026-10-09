@@ -18,6 +18,7 @@ built from the CDR/framework definitions of cdr.py.
 import os
 import sys
 import re
+import string
 import glob
 import gzip
 import time
@@ -116,6 +117,36 @@ def write_seqres_fasta(pdb_path, chains, fasta_path):
     return str(fasta_path)
 
 
+def merge_models(pdb_text):
+    """Join the MODELs of an assembly into one model with a distinct ID per chain.
+
+    PDB-format assemblies hold one MODEL per generated copy and repeat the chain
+    IDs (1TGJ is two chains A). A copy whose chain ID is taken gets the next free
+    one, and the SEQRES of the original chain is duplicated under the new ID.
+    """
+    models = [[]]
+    seqres = []
+    for line in pdb_text.splitlines():
+        if line[:6] == 'SEQRES':
+            seqres.append(line)
+        elif line[:6] == 'ENDMDL':
+            models.append([])
+        elif line[:6].strip() in ('ATOM', 'HETATM', 'TER'):
+            models[-1].append(line)
+    models = [m for m in models if m]
+    all_ids = {line[21] for m in models for line in m}
+    free = (c for c in string.ascii_uppercase + string.digits if c not in all_ids)
+    used, merged = set(), []
+    for lines in models:
+        renamed = {c: c if c not in used else next(free) for c in dict.fromkeys(l[21] for l in lines)}
+        for old, new in renamed.items():
+            if old != new:
+                seqres += [l[:11] + new + l[12:] for l in seqres if l[11] == old]
+        merged += [l[:21] + renamed[l[21]] + l[22:] for l in lines]
+        used.update(renamed.values())
+    return '\n'.join(seqres + merged + ['END']) + '\n'
+
+
 def repair_structure(input_pdb_path, output_pdb_path, chains, model=None,
                     assembly=False, properties=None):
     """Repair backbone and side chains before HADDOCK renumbers or fuses them.
@@ -125,32 +156,32 @@ def repair_structure(input_pdb_path, output_pdb_path, chains, model=None,
     """
     from tempfile import TemporaryDirectory
     from biobb_pdb_tools.pdb_tools.biobb_pdb_selmodel import biobb_pdb_selmodel
-    from biobb_pdb_tools.pdb_tools.biobb_pdb_mkensemble import biobb_pdb_mkensemble
     from biobb_pdb_tools.pdb_tools.biobb_pdb_selchain import biobb_pdb_selchain
     from biobb_model.model.fix_backbone import fix_backbone
     from biobb_model.model.fix_side_chain import fix_side_chain
 
     output = Path(output_pdb_path).resolve()
     output.parent.mkdir(parents=True, exist_ok=True)
-    fasta = write_seqres_fasta(input_pdb_path, chains, output.with_suffix('.fasta'))
     # Temporary preprocessing outputs must not be skipped by restart settings.
     prep = dict(properties or {}, restart=False)
     with TemporaryDirectory(dir=output.parent) as folder:
         selected_model = str(Path(folder) / 'model.pdb')
         if assembly and model is None:
-            biobb_pdb_mkensemble(input_file_path=str(input_pdb_path),
-                                output_file_path=selected_model, properties=prep)
+            Path(selected_model).write_text(merge_models(Path(input_pdb_path).read_text()))
+            fasta_source = selected_model  # its SEQRES covers the renamed chains
         else:
+            fasta_source = input_pdb_path
             biobb_pdb_selmodel(input_file_path=str(input_pdb_path),
                                 output_file_path=selected_model,
                                 properties=dict(prep, models=model or '1'))
+        fasta = write_seqres_fasta(fasta_source, chains, output.with_suffix('.fasta'))
         selected_chains = str(Path(folder) / 'chains.pdb')
         biobb_pdb_selchain(input_file_path=selected_model, output_file_path=selected_chains,
                             properties=dict(prep, chains=chains))
         backbone = Path(folder) / 'backbone.pdb'
         result = fix_backbone(input_pdb_path=selected_chains,
                                 input_fasta_canonical_sequence_path=fasta,
-                                output_pdb_path=str(backbone), properties=dict(prep,extra_gap=4))
+                                output_pdb_path=str(backbone), properties=prep)
         if result != 0 or not backbone.is_file():
             raise RuntimeError(f'Backbone repair failed for {input_pdb_path}')
         result = fix_side_chain(input_pdb_path=str(backbone),

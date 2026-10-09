@@ -30,6 +30,14 @@ then an AWH free-energy calculation. Everything is driven by one config file.
 - Notebook and package share logic. Put reusable code in `src/antibody_wf/`
   and keep the notebook thin.
 
+## Benchmark cases
+
+16 antibody–antigen complexes (index 0–15) from Zlab Docking Benchmark 5.5, defined
+in `COMPLEXES` in `array/launch_wf.py`. Each is (reference:antigen chains, unbound
+antibody, unbound antigen). 0–10 are the first block, 11–15 "Medium". `launch_wf.py
+--index N` writes `case_N/workflow.yml` from the template. Key benchmark lookups on
+the unbound antibody code.
+
 ## Environment
 
 Use the conda environment at `/home/rchaves/miniforge3/envs/biobb_wf_antibody` for
