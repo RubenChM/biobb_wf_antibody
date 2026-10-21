@@ -1,5 +1,6 @@
 global_properties:
   working_dir_path: output
+  raise_error: True
   restart: True
   can_write_console_log: False
 
@@ -172,12 +173,12 @@ step2_0_biobb_pdb_selchain:
     input_file_path: dependency/step1_repair_antibody/output_pdb_path
     output_file_path: antibody_chains.pdb
 
-# Not a building block: the downloaded force field lives in output/ff and the directory
+# Not a building block: the downloaded force field lives in ff and the directory
 # is handed to every pdb2gmx and grompp step below as its GMXLIB.
 
 step2_2_charmm36:
   paths:
-    output_ff_path: 'file:output/ff'
+    output_ff_path: 'file:ff'
   properties:
     force_field: charmm36-jul2017
     url: https://mackerell.umaryland.edu/download.php?filename=CHARMM_ff_params_files/charmm36-jul2017.ff.tgz
@@ -478,7 +479,7 @@ step3_0_recover_chains:
 
 step3_1_charmm36:
   paths:
-    output_ff_path: 'file:output/ff'
+    output_ff_path: 'file:ff'
   properties:
     force_field: charmm36-jul2017
     url: https://mackerell.umaryland.edu/download.php?filename=CHARMM_ff_params_files/charmm36-jul2017.ff.tgz

@@ -1,6 +1,6 @@
 [workspace]
 name = "biobb_wf_antibody"
-channels = ["conda-forge", "bioconda"]
+channels = ["conda-forge", "bioconda", "salilab"]
 platforms = ["linux-64"]
 
 [dependencies]
@@ -16,6 +16,7 @@ biobb_analysis = ">=5.3.0"
 biobb_gromacs = ">=5.3.1"
 gromacs = { version = "==2026", build = "mpi*" }
 biobb_model = "*"
+modeller = { version = "*", channel = "salilab" }   # fix_backbone rebuilds gaps with it
 mdanalysis = "*"
 # pytorch-gpu = "*"   # if not declared, anarcii installs pytorch-cpu
 # anarcii = "*"
