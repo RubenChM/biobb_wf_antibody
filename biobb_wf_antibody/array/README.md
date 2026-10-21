@@ -30,6 +30,11 @@ rsync -avz output/ff/   $HPC_PATH/biobb_wf_antibody/ff/
 ./environment.sh
 # Activate; no conda/pixi needed on the host    
 source activate.sh
+# Write the MODELLER license into the env. The conda package installs the placeholder
+# 'XXXX'; with it check_structure leaves the gaps unrepaired. Repeat after every unpack.
+sed -i "s/^license = r'.*'/license = r'$(cat biobb_wf_antibody/config/modeller_key.txt)'/" \
+    env/lib/modeller-*/modlib/modeller/config.py
+python -c "import modeller"   # fails here if the key is wrong
 # Test BioBBs and haddock3 are available
 gmx_image --help
 haddock3 --version

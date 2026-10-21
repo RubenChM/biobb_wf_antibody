@@ -16,6 +16,7 @@ built from the CDR/framework definitions of cdr.py.
 """
 
 import os
+import math
 import sys
 import re
 import string
@@ -147,8 +148,43 @@ def merge_models(pdb_text):
     return '\n'.join(seqres + merged + ['END']) + '\n'
 
 
+MAX_PEPTIDE_BOND = 2.0  # A, C(i)-N(i+1); a real peptide bond is ~1.33
+
+
+def backbone_breaks(pdb_path):
+    """(chain, residue_i, residue_j, distance) of every broken peptide bond."""
+    last = {}   # chain -> (label, C coords) of the previous residue
+    cur = {}
+    order = []
+    model = 0
+    for line in Path(pdb_path).read_text().splitlines():
+        if line.startswith('MODEL'):
+            model += 1  # copies of an assembly may share chain IDs
+        if not line.startswith('ATOM'):
+            continue
+        chain = f'{model}{line[21]}' if model else line[21]
+        res = (line[17:20].strip(), line[22:27].strip())
+        key = (chain, line[22:27])
+        if not order or order[-1] != key:
+            order.append(key)
+            cur[key] = {'label': f'{res[0]}{res[1]}', 'chain': chain}
+        name = line[12:16].strip()
+        if name in ('N', 'C'):
+            cur[key][name] = (float(line[30:38]), float(line[38:46]), float(line[46:54]))
+    breaks = []
+    for a, b in zip(order, order[1:]):
+        if a[0] != b[0]:
+            continue
+        ra, rb = cur[a], cur[b]
+        if 'C' in ra and 'N' in rb:
+            d = math.dist(ra['C'], rb['N'])
+            if d > MAX_PEPTIDE_BOND:
+                breaks.append((a[0], ra['label'], rb['label'], round(d, 1)))
+    return breaks
+
+
 def repair_structure(input_pdb_path, output_pdb_path, chains, model=None,
-                    assembly=False, properties=None):
+                    assembly=False, properties=None, check_breaks=True):
     """Repair backbone and side chains before HADDOCK renumbers or fuses them.
 
     Read canonical sequences from the unfiltered entry; retain chain IDs for
@@ -188,6 +224,13 @@ def repair_structure(input_pdb_path, output_pdb_path, chains, model=None,
                                 output_pdb_path=str(output), properties=prep)
         if result != 0 or not output.is_file():
             raise RuntimeError(f'Side-chain repair failed for {input_pdb_path}')
+    # check_structure exits 0 when Modeller cannot run (no package, invalid license),
+    # leaving the gaps that pdb2gmx later bonds across.
+    breaks = backbone_breaks(output) if check_breaks else []
+    if breaks:
+        raise RuntimeError(f'Backbone still broken after repair of {input_pdb_path} '
+                           f'(chain, residue, residue, C-N distance in A): {breaks}. '
+                           'Check the Modeller installation and license key.')
     return str(output)
 
 

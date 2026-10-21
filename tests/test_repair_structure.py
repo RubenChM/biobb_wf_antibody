@@ -10,7 +10,6 @@ output/repair_test/inputs. Needs the MODELLER key in MODELLER_KEY or biobb_wf_an
     python tests/test_repair_structure.py [--gaps 0 2 4 8] [--cases 0 1 2] [--jobs 4]
 """
 import argparse
-import math
 import os
 import sys
 from concurrent.futures import ProcessPoolExecutor
@@ -21,39 +20,8 @@ sys.path.insert(0, str(ROOT / 'src'))
 sys.path.insert(0, str(ROOT / 'biobb_wf_antibody' / 'array'))
 
 FIX_KNOWN = bool(int(os.environ.get('FIX_KNOWN', 0)))  # keep the coordinates of the known residues
-MAX_PEPTIDE_BOND = 2.0  # A, C(i)-N(i+1); a real peptide bond is ~1.33
 
-
-def backbone_breaks(pdb_path):
-    """(chain, residue_i, residue_j, distance) of every broken peptide bond."""
-    last = {}   # chain -> (label, C coords) of the previous residue
-    cur = {}
-    order = []
-    model = 0
-    for line in Path(pdb_path).read_text().splitlines():
-        if line.startswith('MODEL'):
-            model += 1  # copies of an assembly may share chain IDs
-        if not line.startswith('ATOM'):
-            continue
-        chain = f'{model}{line[21]}' if model else line[21]
-        res = (line[17:20].strip(), line[22:27].strip())
-        key = (chain, line[22:27])
-        if not order or order[-1] != key:
-            order.append(key)
-            cur[key] = {'label': f'{res[0]}{res[1]}', 'chain': chain}
-        name = line[12:16].strip()
-        if name in ('N', 'C'):
-            cur[key][name] = (float(line[30:38]), float(line[38:46]), float(line[46:54]))
-    breaks = []
-    for a, b in zip(order, order[1:]):
-        if a[0] != b[0]:
-            continue
-        ra, rb = cur[a], cur[b]
-        if 'C' in ra and 'N' in rb:
-            d = math.dist(ra['C'], rb['N'])
-            if d > MAX_PEPTIDE_BOND:
-                breaks.append((a[0], ra['label'], rb['label'], round(d, 1)))
-    return breaks
+from antibody_wf.utils import backbone_breaks  # noqa: E402,F401  (re-exported for the benchmark test)
 
 
 def load_key():
@@ -88,7 +56,7 @@ def repair_case(args):
         props['modeller_key'] = load_key()
     try:
         utils.repair_structure(src, out, chains, model=model, assembly=name == 'antigen',
-                               properties=props)
+                               properties=props, check_breaks=False)  # the sweep counts them
         return index, name, extra_gap, backbone_breaks(out), None
     except Exception as exc:  # report, keep sweeping
         return index, name, extra_gap, None, f'{type(exc).__name__}: {exc}'
