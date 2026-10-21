@@ -42,6 +42,14 @@ def zip_pdb_files(pdb_paths, zip_file_path):
     return zip_file_path
     
 
+def check_not_empty(pdb_path, selection, source_pdb_path):
+    """Stop early when a chain selection kept no atoms, not at the interface lookup."""
+    with open(pdb_path) as f:
+        if not any(line.startswith('ATOM') for line in f):
+            raise ValueError(f'No ATOM records for {selection} in {source_pdb_path} '
+                             '(wrong chain IDs, or the chains are in another MODEL)')
+
+
 def prepare_antibody(input_pdb_path: str, output_pdb_path: str, chains: str, 
                      merge_paths: str, merge_prop: str, model: str | None):
     """Prepare an antibody structure to meet the HADDOCK3 requirements.
@@ -53,13 +61,23 @@ def prepare_antibody(input_pdb_path: str, output_pdb_path: str, chains: str,
     """
     input_pdb_path = os.path.abspath(input_pdb_path)
     step_path = os.path.dirname(output_pdb_path)
-    model = model or '1'
+    if model is None:
+        # Assemblies can split the complex across MODELs (3G6D holds the antigen
+        # in model 1 and L,H in model 2), so join them instead of keeping model 1.
+        merged_pdb_path = os.path.join(step_path, 'assembly_merged.pdb')
+        with open(input_pdb_path) as f:
+            merged = utils.merge_models(f.read())
+        with open(merged_pdb_path, 'w') as f:
+            f.write(merged)
+        input_pdb_path = merged_pdb_path
     chain_pdb_paths = []
     with fu.change_dir(step_path):
         for ch in [ch.strip() for ch in chains.split(',')]:
             chain_pdb_paths.append(os.path.join(step_path, f'chain_{ch}.pdb'))
-            steps = [
-                (biobb_pdb_selmodel.biobb_pdb_selmodel,   {'models': model}),   # 0. Extract the requested model
+            steps = []
+            if model:
+                steps += [(biobb_pdb_selmodel.biobb_pdb_selmodel, {'models': model})]  # 0. Extract the requested model
+            steps += [
                 (biobb_pdb_tidy.biobb_pdb_tidy,           {'strict': True}),    # 1. Adhere to the format specifications
                 (biobb_pdb_selchain.biobb_pdb_selchain,   {'chains': ch}),      # 2. Extract chain
                 (biobb_pdb_delhetatm.biobb_pdb_delhetatm, {}),                  # 3. Remove all HETATM records 
@@ -70,6 +88,7 @@ def prepare_antibody(input_pdb_path: str, output_pdb_path: str, chains: str,
             ]
             utils.pdb_tools_pipeline(input_pdb_path, chain_pdb_paths[-1], steps)
             utils.remove_model_lines(chain_pdb_paths[-1])
+            check_not_empty(chain_pdb_paths[-1], f'chain {ch}', input_pdb_path)
 
     # Merge the cleaned chains into a single PDB file
     merge_paths['input_file_path'] = zip_pdb_files(chain_pdb_paths, os.path.join(step_path, 'chains.zip'))
@@ -112,6 +131,7 @@ def prepare_antigen(input_pdb_path, output_pdb_path, chains, model: str | None):
         ]
         utils.pdb_tools_pipeline(input_pdb_path, output_pdb_path, steps)
         utils.remove_model_lines(output_pdb_path)
+        check_not_empty(output_pdb_path, f'chains {chains}', input_pdb_path)
 
 
 def merge_structures(input_pdb_paths, output_pdb_path):
