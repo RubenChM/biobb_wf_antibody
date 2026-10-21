@@ -2,8 +2,8 @@
 #SBATCH --account=irb93
 #SBATCH --qos=gp_resa
 #SBATCH --job-name=ab_array
-#SBATCH --output=../output/array_logs/ab_%A_%a.out
-#SBATCH --error=../output/array_logs/ab_%A_%a.err
+#SBATCH --output=./output/array_logs/ab_%A_%a.out
+#SBATCH --error=./output/array_logs/ab_%A_%a.err
 #SBATCH --array=0-15
 #SBATCH --ntasks=4
 #SBATCH --cpus-per-task=112
@@ -46,13 +46,13 @@ export MPI_BIN=$(which srun)
 PROJECT_PATH=/gpfs/projects/irb93/ruben/ab_wf
 cd $PROJECT_PATH
 source activate.sh
-cd $PROJECT_PATH/array
-mkdir -p ../output/array_logs
+mkdir -p $PROJECT_PATH/output/array_logs
 
+cd $PROJECT_PATH/biobb_wf_antibody/array
 # Read the MODELLER license key from a file
 export MODELLER_KEY=$(cat ../config/modeller_key.txt)
 # One complex of the launcher's 'complexes' list per array task, every
 # one of them in its own 'output/case_<index>' working directory
-python launch_wf.py --index "$SLURM_ARRAY_TASK_ID" --out-dir ../output \
+python launch_wf.py --index "$SLURM_ARRAY_TASK_ID" --out-dir $PROJECT_PATH/output \
     --gmx-bin "$GMX_BIN" --mpi-bin "$MPI_BIN" --mpi-np "$SLURM_NTASKS" \
     --num-threads-omp "$SLURM_CPUS_PER_TASK" --ncores "$SLURM_CPUS_PER_TASK"

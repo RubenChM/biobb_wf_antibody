@@ -11,19 +11,30 @@ scp environment.sh $HPC_PATH/
 
 # Sync the workflow code. Only transfers files that changed (size/mtime)
 cd ..
-rsync -avz biobb_wf_antibody src $HPC_PATH/  --exclude __pycache__
+rsync -avz biobb_wf_antibody src $HPC_PATH/  --exclude __pycache__ --exclude output --exclude log
 
-# Dowload and sync the PDB starting structures
+# Dowload and sync the PDB starting structures and force-field
 for ID in $(seq 0 15); do
     python array/launch_wf.py --index $ID --out-dir ../../output/hpc -d
 done
-rsync -avz output/hpc/ $HPC_PATH/output/
+
+mkdir -p output/ff
+curl  -o output/ff/charmm36-jul2017.ff.tgz https://mackerell.umaryland.edu/download.php?filename=CHARMM_ff_params_files/charmm36-jul2017.ff.tgz
+tar -xvzf output/ff/charmm36-jul2017.ff.tgz -C output/ff/  
+
+rsync -avz output/hpc/  $HPC_PATH/output/
+rsync -avz output/ff/   $HPC_PATH/biobb_wf_antibody/ff/
 
 # On cluster, run:
-./environment.sh                    # unpacks into ./env/, writes ./activate.sh
-source activate.sh                  # activate; no conda/pixi needed on the host
-gmx_image --help                    # test biobbs are available
-haddock3 --version                  # test haddock3 is available
+# Unpacks into ./env/, writes ./activate.sh
+./environment.sh
+# Activate; no conda/pixi needed on the host    
+source activate.sh
+# Test BioBBs and haddock3 are available
+gmx_image --help
+haddock3 --version
+# Submit the job array
+sbatch biobb_wf_antibody/array/job_array.sh
 ```
 
 ## haddock3
