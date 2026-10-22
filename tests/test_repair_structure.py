@@ -69,6 +69,10 @@ def main():
     ap.add_argument('--jobs', type=int, default=4)
     ap.add_argument('--workdir', default=str(ROOT / 'output' / ('repair_test' + ('_fixknown' if FIX_KNOWN else ''))))
     a = ap.parse_args()
+    # biobb writes its logs to the working directory, keep them out of the repository root
+    a.workdir = str(Path(a.workdir).resolve())  # relative to where it was launched
+    (ROOT / 'output' / 'logs').mkdir(parents=True, exist_ok=True)
+    os.chdir(ROOT / 'output' / 'logs')
     from launch_wf import COMPLEXES
     cases = a.cases if a.cases else range(len(COMPLEXES))
     gaps = sorted(a.gaps)
