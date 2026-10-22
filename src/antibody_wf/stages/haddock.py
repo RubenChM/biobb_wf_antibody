@@ -64,6 +64,7 @@ def prepare_antibody(input_pdb_path: str, output_pdb_path: str, chains: str,
     if model is None:
         # Assemblies can split the complex across MODELs (3G6D holds the antigen
         # in model 1 and L,H in model 2), so join them instead of keeping model 1.
+        os.makedirs(step_path, exist_ok=True)  # the biobb steps below would create it
         merged_pdb_path = os.path.join(step_path, 'assembly_merged.pdb')
         with open(input_pdb_path) as f:
             merged = utils.merge_models(f.read())

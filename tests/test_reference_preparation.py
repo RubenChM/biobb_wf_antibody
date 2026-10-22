@@ -45,9 +45,11 @@ def reference(request):
     code, antibody_chains, antigen_chains, model = utils.parse_identifier(identifier)
     src = download_input(code, model, WORKDIR / 'inputs')
     case = WORKDIR / f'case_{request.param}'
+    # Only the step1_4 and step1_7 folders are created here, as those steps get them from their
+    # configuration properties in the workflow; prepare_* must create their own
     steps = {name: case / name for name in ('step1_3', 'step1_4', 'step1_5', 'step1_6', 'step1_7')}
-    for folder in steps.values():
-        folder.mkdir(parents=True, exist_ok=True)
+    for name in ('step1_4', 'step1_7'):
+        steps[name].mkdir(parents=True, exist_ok=True)
     restart = {'restart': False}
 
     antibody = str(steps['step1_3'] / 'reference_antibody.pdb')
