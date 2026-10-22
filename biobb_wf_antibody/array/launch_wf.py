@@ -28,7 +28,7 @@ COMPLEXES = (
     ("4GXU_MN:ABEFCD", "4GXV_HL", "1RUZ_HIJKLM"),
     # Medium
     ("3EO1_AB:CF",     "3EO0_AB", "1TGJ_AB"),
-    ("3G6D_LH:A",      "3G6A_LH", "1IK0_A(10)"),
+    ("3G6D_LH:A(1)",   "3G6A_LH", "1IK0_A(10)"),   # assembly 1 pairs the antigen with a crystal neighbour
     ("3HI6_XY:B",      "3HI5_HL", "1MJN_A"),
     ("3L5W_LH:I",      "3L7E_LH", "1IK0_A(11)"),
     ("3V6Z_AB:F",      "3V6F_AB", "3KXS_F"),
