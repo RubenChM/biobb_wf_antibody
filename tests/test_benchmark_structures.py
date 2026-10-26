@@ -200,3 +200,30 @@ def test_rmsd_to_unbound_and_bound(case_structures):
     print(f'to unbound {to_unbound:.2f}  to bound {to_bound:.2f}  unbound-bound {reference:.2f}')
     assert to_bound < reference + BOUND_MARGIN, \
         f'RMSD to the bound {to_bound:.2f} A vs {reference:.2f} A for the benchmark unbound'
+
+
+@parametrize()
+def test_preparation_keeps_every_residue(case_structures, request):
+    """step1_0 / step1_2 prepare the repaired structure for HADDOCK without losing atoms.
+
+    The repaired files carry the TER records check_structure writes through Biopython;
+    before the PDBIO fix they were 81 columns and pdb_mkensemble dropped the first N of
+    every antigen chain after the first (case 3). pdb_selaltloc can drop altloc-only
+    residues on this path too.
+    """
+    from antibody_wf.stages.haddock import prepare_antibody, prepare_antigen
+    ours, path, _, _ = case_structures
+    case, name = request.node.callspec.params['case_structures']
+    chains = utils.parse_identifier(COMPLEXES[case][1 if name == 'antibody' else 2])[1]
+    step = path.parent / 'prepared'
+    out = step / f'{name}_clean.pdb'
+    if name == 'antibody':
+        (step / 'merge').mkdir(parents=True, exist_ok=True)
+        prepare_antibody(str(path), str(out), chains,
+                         {'output_file_path': str(step / 'merge' / 'merged.pdb')},
+                         {'restart': False}, model=None)
+    else:
+        prepare_antigen(str(path), str(out), chains, model=None)   # raises on missing N/CA/C
+    prepared = sum(len(v) for v in read_ca(out).values())
+    selected = sum(len(ours[c]) for c in chains.split(','))
+    assert prepared == selected, f'{selected} residues repaired but {prepared} prepared'

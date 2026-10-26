@@ -42,12 +42,23 @@ def zip_pdb_files(pdb_paths, zip_file_path):
     return zip_file_path
     
 
-def check_not_empty(pdb_path, selection, source_pdb_path):
-    """Stop early when a chain selection kept no atoms, not at the interface lookup."""
+def check_prepared(pdb_path, selection, source_pdb_path):
+    """Stop early when a chain selection kept no atoms, not at the interface lookup,
+    or when a residue lost a backbone atom on the way, not in HADDOCK or grompp."""
+    backbone = {}
     with open(pdb_path) as f:
-        if not any(line.startswith('ATOM') for line in f):
-            raise ValueError(f'No ATOM records for {selection} in {source_pdb_path} '
-                             '(wrong chain IDs, or the chains are in another MODEL)')
+        for line in f:
+            if line.startswith('ATOM'):
+                residue = f'{line[17:20]}{line[21]}{line[22:27].strip()}'
+                backbone.setdefault(residue, set()).add(line[12:16].strip())
+    if not backbone:
+        raise ValueError(f'No ATOM records for {selection} in {source_pdb_path} '
+                         '(wrong chain IDs, or the chains are in another MODEL)')
+    incomplete = [f'{res} (no {"/".join(sorted({"N", "CA", "C"} - atoms))})'
+                  for res, atoms in backbone.items() if {'N', 'CA', 'C'} - atoms]
+    if incomplete:
+        raise ValueError(f'Backbone atoms missing after preparing {selection} of '
+                         f'{source_pdb_path}: {", ".join(incomplete)}')
 
 
 def prepare_antibody(input_pdb_path: str, output_pdb_path: str, chains: str, 
@@ -89,7 +100,7 @@ def prepare_antibody(input_pdb_path: str, output_pdb_path: str, chains: str,
             ]
             utils.pdb_tools_pipeline(input_pdb_path, chain_pdb_paths[-1], steps)
             utils.remove_model_lines(chain_pdb_paths[-1])
-            check_not_empty(chain_pdb_paths[-1], f'chain {ch}', input_pdb_path)
+            check_prepared(chain_pdb_paths[-1], f'chain {ch}', input_pdb_path)
 
     # Merge the cleaned chains into a single PDB file
     merge_paths['input_file_path'] = zip_pdb_files(chain_pdb_paths, os.path.join(step_path, 'chains.zip'))
@@ -132,7 +143,7 @@ def prepare_antigen(input_pdb_path, output_pdb_path, chains, model: str | None):
         ]
         utils.pdb_tools_pipeline(input_pdb_path, output_pdb_path, steps)
         utils.remove_model_lines(output_pdb_path)
-        check_not_empty(output_pdb_path, f'chains {chains}', input_pdb_path)
+        check_prepared(output_pdb_path, f'chains {chains}', input_pdb_path)
 
 
 def merge_structures(input_pdb_paths, output_pdb_path):
