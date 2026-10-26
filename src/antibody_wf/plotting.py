@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 import plotly
 import plotly.graph_objs as go
+import matplotlib.colors
 import matplotlib.pyplot as plt
 import MDAnalysis as mda
 import nglview as nv
@@ -131,8 +132,10 @@ def plot_dockq_vs_score(dir, ax = None, colors = ['blue', 'orange'], label = Non
 
     ax.scatter(df_em['score'], df_em['dockq'], color=colors[0], alpha=marker_alpha,
                s=marker_size, label='_nolegend_')
-    ax.scatter(df_clust['score'], df_clust['dockq'], color=colors[1], alpha=marker_alpha,
-               s=marker_size, label='_nolegend_', marker='x')
+    # seletopclusts representatives (11_caprieval) as dark circles over the EM models
+    dark = tuple(0.7 * c for c in matplotlib.colors.to_rgb(colors[1]))
+    ax.scatter(df_clust['score'], df_clust['dockq'], facecolors=dark, alpha=marker_alpha, s=marker_size,
+               edgecolors='black', linewidths=0.6, label='_nolegend_', zorder=3)
     ax.set_xlabel('HADDOCK score')
     ax.set_ylabel('DockQ')
 
