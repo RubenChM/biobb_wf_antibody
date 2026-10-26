@@ -28,7 +28,6 @@ import numpy as np
 from biobb_common.configuration import settings
 from biobb_common.tools import file_utils as fu
 
-from biobb_analysis.gromacs.gmx_cluster import gmx_cluster
 from biobb_analysis.gromacs.gmx_energy import gmx_energy
 from biobb_analysis.gromacs.gmx_image import gmx_image
 from biobb_analysis.gromacs.gmx_trjconv_str import gmx_trjconv_str
@@ -388,8 +387,11 @@ def awh_workflow(global_log, global_prop, global_paths, complex_ids=None):
     gmx_image(**paths, properties=global_prop['step3_26_gmx_image_framework'])
 
     global_log.info('step3_27_gmx_cluster: Cluster the CDR-loop conformations')
+    # Same cutoff search and selection of the most populated clusters as the free MD run
     paths = global_paths['step3_27_gmx_cluster']
-    gmx_cluster(**paths, properties=global_prop['step3_27_gmx_cluster'])
+    prop = dict(global_prop['step3_27_gmx_cluster'])
+    min_clusters = prop.pop('min_clusters')
+    cdr.cluster_loops(**paths, properties=prop, min_clusters=min_clusters, log=global_log.info)
     cluster_pdb = paths['output_pdb_path']
 
     global_log.info('step3_28_clean_clusters: Prepare the representatives for HADDOCK3')
@@ -407,7 +409,8 @@ def awh_workflow(global_log, global_prop, global_paths, complex_ids=None):
 
     global_log.info('step3_30_haddock3_run: Dock the CDR-loop ensemble against the antigen')
     paths = global_paths['step3_30_haddock3_run']
-    MD.stage_docking_input(paths, global_prop['step3_30_haddock3_run'], ensemble_pdb)
+    MD.stage_docking_input(paths, global_prop['step3_30_haddock3_run'], ensemble_pdb,
+                           log=global_log.info)
 
     return {
         'complex_pdb_path': fixed_pdb,

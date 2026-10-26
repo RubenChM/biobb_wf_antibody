@@ -417,7 +417,11 @@ step2_23_gmx_cluster:
     fit_selection: Loop_CA
     output_selection: System
     method: gromos
+    # Start of the cutoff search (nm): cdr.cluster_loops raises or lowers it to the largest
+    # cutoff that still splits the loops into 'min_clusters' clusters, and keeps that many
+    # of the most populated
     cutoff: 0.13
+    min_clusters: 20
     nofit: True
     binary_path: gmx_mpi
 
@@ -451,7 +455,9 @@ step2_26_haddock3_run:
     output_haddock_wf_data: haddock_output
   properties:
     disable_sandbox: True  # Do not copy the input data into the sandbox
-    # Override the sampling of haddock_config.cfg to make the run faster
+    # Override the sampling of haddock_config.cfg to make the run faster. The rigid-body
+    # sampling is per antibody model: stages/MD.py multiplies it by the number of models
+    # in the ensemble, so each one gets as many trials as the baseline structure
     cfg:
       rigidbody.1:
         sampling: 200
@@ -772,7 +778,11 @@ step3_27_gmx_cluster:
     fit_selection: Loop_CA
     output_selection: Antibody
     method: gromos
+    # Start of the cutoff search (nm): cdr.cluster_loops raises or lowers it to the largest
+    # cutoff that still splits the loops into 'min_clusters' clusters, and keeps that many
+    # of the most populated
     cutoff: 0.13
+    min_clusters: 20
     nofit: True
     binary_path: gmx_mpi
 
@@ -799,7 +809,9 @@ step3_30_haddock3_run:
     output_haddock_wf_data: haddock_output
   properties:
     disable_sandbox: True  # Do not copy the input data into the sandbox
-      # Override the sampling of haddock_config.cfg to make the run faster
+    # Override the sampling of haddock_config.cfg to make the run faster. The rigid-body
+    # sampling is per antibody model: stages/MD.py multiplies it by the number of models
+    # in the ensemble, so each one gets as many trials as the baseline structure
     cfg:
       rigidbody.1:
         sampling: 200

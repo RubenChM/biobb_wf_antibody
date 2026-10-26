@@ -16,6 +16,7 @@ built from the CDR/framework definitions of cdr.py.
 """
 
 import os
+import copy
 import math
 import sys
 import re
@@ -492,6 +493,28 @@ def haddock_best_model(haddock_wf_data, output_pdb_path=None, run_dir='run'):
     with gzip.open(best, 'rt') as compressed, open(output_pdb_path, 'w') as pdb_file:
         shutil.copyfileobj(compressed, pdb_file)
     return output_pdb_path
+
+
+def per_model_sampling(prop, antibody_pdb_path, haddock_config_path):
+    """Scale the rigid-body sampling of `prop` by the number of models in the ensemble.
+
+    HADDOCK3 splits 'rigidbody.sampling' over every input model, so the value of the
+    step is read as the number of rigid-body trials per antibody model: the single
+    structure of the baseline run and each conformation of an ensemble get the same.
+    Without a 'cfg' override (array/launch_wf.py drops them) the value is the one of
+    the [rigidbody] section of the configuration file, 1000 if it sets none, the
+    HADDOCK3 default. Returns the scaled copy of `prop` and the number of models.
+    """
+    n_models = max(1, sum(line.startswith('MODEL') for line in open(antibody_pdb_path)))
+    prop = copy.deepcopy(prop)
+    rigidbody = prop.setdefault('cfg', {}).setdefault('rigidbody.1', {})
+    if 'sampling' not in rigidbody:
+        section = re.search(r'^\[rigidbody\]\s*\n(.*?)(?=^\[)',
+                            open(haddock_config_path).read() + '\n[', re.M | re.S)
+        sampling = re.search(r'^\s*sampling\s*=\s*(\d+)', section.group(1), re.M)
+        rigidbody['sampling'] = int(sampling.group(1)) if sampling else 1000
+    rigidbody['sampling'] *= n_models
+    return prop, n_models
 
 
 def recover_chain_ids(

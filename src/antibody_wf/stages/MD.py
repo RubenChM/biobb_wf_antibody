@@ -27,7 +27,6 @@ import numpy as np
 from biobb_common.configuration import settings
 from biobb_common.tools import file_utils as fu
 
-from biobb_analysis.gromacs.gmx_cluster import gmx_cluster
 from biobb_analysis.gromacs.gmx_energy import gmx_energy
 from biobb_analysis.gromacs.gmx_image import gmx_image
 from biobb_analysis.gromacs.gmx_trjconv_str import gmx_trjconv_str
@@ -95,15 +94,20 @@ def build_docking_ensemble(cluster_pdb_path, experimental_pdb_path, zip_path, ou
                          properties=properties)
 
 
-def stage_docking_input(paths, prop, antibody_pdb_path):
+def stage_docking_input(paths, prop, antibody_pdb_path, log=print):
     """Copy the docking input files under the names haddock_config.cfg expects.
 
     The antigen, the reference complex and both restraint tables are the ones of
     the baseline docking, only the antibody differs: here it is the CDR-loop
     ensemble instead of the single experimental structure. The configuration file and
     the properties of the step have to hold the same protocol as the baseline run,
-    which is what makes the three docking runs comparable.
+    which is what makes the three docking runs comparable, and the rigid-body sampling
+    is scaled so every model of the ensemble gets as many trials as the baseline one.
     """
+    prop, n_models = utils.per_model_sampling(prop, antibody_pdb_path,
+                                               paths['haddock_config_path'])
+    log(f'  {n_models} antibody models -> rigidbody sampling '
+        f"{prop['cfg']['rigidbody.1']['sampling']}")
     fu.create_dir(paths['input_haddock_wf_data'])
     for name, src in [('antibody.pdb', antibody_pdb_path),
                       ('antigen.pdb', paths['input_antigen_pdb_path']),
@@ -245,9 +249,13 @@ def md_workflow(global_log, global_prop, global_paths, complex_ids=None):
     global_log.info('step2_23_gmx_cluster: Cluster the CDR-loop conformations')
     # Clustering on the C-alpha atoms of the loops, not on every atom of the CDR
     # residues: side-chain rotamers add a large offset that has nothing to do with
-    # loop conformation, and HADDOCK refines side chains itself
+    # loop conformation, and HADDOCK refines side chains itself. The cutoff is lowered
+    # until the loops split into 'min_clusters' clusters, and only that many of the
+    # most populated ones are docked
     paths = global_paths['step2_23_gmx_cluster']
-    gmx_cluster(**paths, properties=global_prop['step2_23_gmx_cluster'])
+    prop = dict(global_prop['step2_23_gmx_cluster'])
+    min_clusters = prop.pop('min_clusters')
+    cdr.cluster_loops(**paths, properties=prop, min_clusters=min_clusters, log=global_log.info)
     cluster_pdb = paths['output_pdb_path']
 
     global_log.info('step2_24_clean_clusters: Prepare the representatives for HADDOCK3')
@@ -265,7 +273,8 @@ def md_workflow(global_log, global_prop, global_paths, complex_ids=None):
 
     global_log.info('step2_26_haddock3_run: Dock the CDR-loop ensemble against the antigen')
     paths = global_paths['step2_26_haddock3_run']
-    stage_docking_input(paths, global_prop['step2_26_haddock3_run'], ensemble_pdb)
+    stage_docking_input(paths, global_prop['step2_26_haddock3_run'], ensemble_pdb,
+                        log=global_log.info)
 
     return {
         'anarcii_pdb_path': anarcii_pdb,
