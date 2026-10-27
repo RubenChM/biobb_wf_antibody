@@ -8,7 +8,9 @@ utils.map_contact_residues, the interface is haddock_interface and the CDRs come
 through cdr.imgt_region_ri, the calls stages 1 and 2 make.
 
 What is left here is what only the notebook needs: the published benchmark values, the I-RMSD as
-the benchmark defines it, the RMSD of the antibody regions and the per-case tables.
+the benchmark defines it, the RMSD of the antibody regions, the per-case tables, the checks, the
+docking results read back next to them, and the figures. The notebook calls these and shows what
+they return.
 """
 
 from __future__ import annotations
@@ -23,9 +25,15 @@ import urllib.request
 import warnings
 from pathlib import Path
 
+import matplotlib.pyplot as plt
 import MDAnalysis as mda
 import numpy as np
+import pandas as pd
+import seaborn as sns
+from Bio.SeqUtils import seq1
 from matplotlib.colors import LinearSegmentedColormap
+from matplotlib.patches import Patch
+from scipy import stats
 from biobb_common import biobb_global_properties
 from biobb_common.configuration import settings
 from biobb_common.tools import file_utils as fu
@@ -142,14 +150,14 @@ def case_config(idx):
     """Logger, properties, paths and complex of case `idx`, read as workflow.py reads them.
 
     The configuration is the one array/launch_wf.py writes for a cluster run, so every path and
-    property below is the run's own.
+    property below is the run's own. It is rewritten once per session, so an identifier changed
+    in COMPLEXES (a pinned model, say) reaches it.
     """
     if idx not in _CONFS:
         case_dir = PREP / f'case_{idx}'
         config = case_dir / 'workflow.yml'
-        if not config.is_file():
-            with contextlib.redirect_stdout(io.StringIO()):
-                write_case_config(idx, str(PREP))
+        with contextlib.redirect_stdout(io.StringIO()):
+            write_case_config(idx, str(PREP))
         conf = settings.ConfReader(str(config))
         global_log, _ = fu.get_logs(path=str(case_dir), light_format=True, can_write_console=False)
         global_prop = conf.get_prop_dic(global_log=global_log)
@@ -183,22 +191,29 @@ def case_files(idx):
 def prepare_case(idx, force=False):
     """Download and prepare case `idx` as stages 0 and 1 do, then number its antibody (step2_19).
 
-    Done once: the Modeller repair takes minutes, so existing outputs are kept unless `force`.
+    Done once per set of identifiers: the outputs are kept until `force` or until the case's
+    entry in COMPLEXES differs from the one they were prepared from (prepared_from.json).
     Returns case_files(idx).
     """
     c = case_config(idx)
     files = case_files(idx)
+    stamp = c['dir'] / 'prepared_from.json'
+    prepared = ('antibody', 'antigen', 'reference', 'interface')
+    stale = (force or not stamp.is_file() or json.loads(stamp.read_text()) != list(COMPLEXES[idx])
+             or not all(Path(files[k]).is_file() for k in prepared))
     if _modeller_key():
         os.environ.setdefault('MODELLER_KEY', _modeller_key())
     # biobb writes its log files and sandboxes to the working directory
     with fu.change_dir(str(c['dir'])):
-        prepared = ('antibody', 'antigen', 'reference')
-        if force or not all(Path(files[k]).is_file() for k in prepared):
-            download_pdbs(c['log'], c['prop'], c['paths'], c['ids'])
-            prepare_structures(c['log'], c['prop'], c['paths'], c['ids'])
-        if force or not Path(files['interface']).is_file():
+        if stale:
+            # the configuration enables restart, which would keep the outputs of the old entry
+            prop = {step: dict(p, restart=False) if isinstance(p, dict) else p for step, p in c['prop'].items()}
+            download_pdbs(c['log'], prop, c['paths'], c['ids'])
+            prepare_structures(c['log'], prop, c['paths'], c['ids'])
+            Path(files['interface']).unlink(missing_ok=True)
             interface_residues(files['reference'], files['interface'])
-        anarcii_chain_types(c['paths']['step2_19_anarcii'], c['prop']['step2_19_anarcii'], force)
+        anarcii_chain_types(c['paths']['step2_19_anarcii'], c['prop']['step2_19_anarcii'], stale)
+    stamp.write_text(json.dumps(list(COMPLEXES[idx])))
     return files
 
 
@@ -505,41 +520,117 @@ def ngl_selection(resids, chain='A'):
 
 
 # ============================================================================
-# Figures
+# Per-case tables
 # ============================================================================
 
-# Categorical slots 1-2 and 1-5 of the reference data-viz palette, validated for colour-vision
-# deficiency all-pairs (2 classes) and adjacent-pairs (5 bars); the 5 bars carry a legend and the
-# summary table is the table view
-DIFF_COLOR = {'rigid': '#2a78d6', 'medium': '#eb6834'}
-SERIES = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4']
-INK, INK_MUTED, GRID = '#0b0b0b', '#52514e', '#d9d8d4'
-# Sequential blue ramp, light -> dark, for magnitudes
-BLUES = LinearSegmentedColormap.from_list(
-    'blues', ['#cde2fb', '#9ec5f4', '#6da7ec', '#3987e5', '#256abf', '#184f95', '#0d366b'])
+def load_cases(indices=None):
+    """Prepare every case and its benchmark control, then tabulate them.
+
+    Returns (files, bench_files, modelled, cases): case_files, prepare_benchmark_case and
+    case_modelled per case index, and one row of case_info per case with the number of residues
+    the repair built in the antibody and the antigen.
+    """
+    indices = range(len(COMPLEXES)) if indices is None else indices
+    files, bench_files, modelled = {}, {}, {}
+    for idx in indices:
+        files[idx] = prepare_case(idx)
+        bench_files[idx] = prepare_benchmark_case(idx)
+        modelled[idx] = case_modelled(files[idx])
+    cases = pd.DataFrame([{**case_info(idx), 'antibody_modelled': len(modelled[idx]['A']),
+                           'antigen_modelled': len(modelled[idx]['B'])}
+                          for idx in files]).set_index('case_idx')
+    return files, bench_files, modelled, cases
 
 
-def label_points(ax, xs, ys, labels, tol=0.03):
-    """Label the points of a scatter; points closer than `tol` of the data span share one label."""
-    xs, ys = np.asarray(xs, float), np.asarray(ys, float)
-    span = max(np.ptp(xs), np.ptp(ys)) or 1.0
-    groups = []
-    for i in np.argsort(xs):
-        for group in groups:
-            if np.hypot(xs[i] - xs[group[0]], ys[i] - ys[group[0]]) < tol * span:
-                group.append(i)
-                break
-        else:
-            groups.append([i])
-    for group in groups:
-        right = max(group, key=lambda i: xs[i])
-        ax.annotate(', '.join(str(list(labels)[i]) for i in group), (xs[right], ys[right]), fontsize=7.5,
-                    xytext=(5, -3), textcoords='offset points', color=INK_MUTED)
+def interface_table(files):
+    """Interface size per case, and how many residues haddock_interface and MDAnalysis disagree on."""
+    rows = []
+    for idx, f in files.items():
+        interface = utils.read_interface(f['interface'])
+        disagree = interface_check(f['reference'], interface)
+        rows.append({'case_idx': idx, 'antibody': len(interface['A']), 'antigen': len(interface['B']),
+                     'disagree_with_mdanalysis': sum(map(len, disagree.values()))})
+    iface = pd.DataFrame(rows).set_index('case_idx')
+    assert iface.disagree_with_mdanalysis.sum() == 0, 'haddock_interface is not the any-atom 10 A interface'
+    return iface
 
 
-# ============================================================================
-# Tables
-# ============================================================================
+IRMSD_COLUMNS = ['ref_code', 'unb_code', 'benchmark_irmsd', 'bench_irmsd', 'bench_irmsd_ab', 'bench_irmsd_ag',
+                 'wf_irmsd', 'wf_irmsd_ab', 'wf_irmsd_ag']
+
+
+def irmsd_table(cases, files, bench_files, modelled):
+    """I-RMSD per case of the benchmark files ('bench_*') and of the workflow structures ('wf_*')."""
+    rows = []
+    for idx in files:
+        bench, ours = irmsd(bench_files[idx]), irmsd(files[idx], modelled[idx])
+        rows.append({'case_idx': idx, **{f'bench_{k}': v for k, v in bench.items()},
+                     **{f'wf_{k}': v for k, v in ours.items()}})
+    irm = cases[['ref_code', 'unb_code', 'difficulty', 'benchmark_irmsd']].join(
+        pd.DataFrame(rows).set_index('case_idx'))
+    irm.to_csv(RES / 'ab_rmsds_irmsd.csv')
+    return irm
+
+
+def report_irmsd(irm, tol=0.015):
+    """How the benchmark files compare with the published column, and the workflow with them."""
+    d_bench = irm.bench_irmsd - irm.benchmark_irmsd
+    d_wf = irm.wf_irmsd - irm.bench_irmsd
+    n = len(irm)
+    print(f'benchmark files - published: |diff| <= 0.01 A in {(d_bench.abs() <= tol).sum()}/{n}, '
+          f'largest {d_bench.abs().max():.2f} A ({irm.ref_code[d_bench.abs().idxmax()]})')
+    print(f'workflow - benchmark files : |diff| <= 0.01 A in {(d_wf.abs() <= tol).sum()}/{n}; differ in')
+    for idx in d_wf[d_wf.abs() > tol].index:
+        r = irm.loc[idx]
+        print(f'    {r.ref_code}/{r.unb_code}: {r.wf_irmsd:.2f} vs {r.bench_irmsd:.2f} A '
+              f'(antibody side {r.wf_irmsd_ab:.2f} vs {r.bench_irmsd_ab:.2f}, '
+              f'antigen side {r.wf_irmsd_ag:.2f} vs {r.bench_irmsd_ag:.2f})')
+    print('interface residues without an unbound counterpart (workflow):',
+          int(irm.wf_n_iface_ab_unmapped.sum() + irm.wf_n_iface_ag_unmapped.sum()))
+    print('interface residues built by the repair (workflow)          :',
+          int(irm.wf_n_iface_ab_modelled.sum() + irm.wf_n_iface_ag_modelled.sum()))
+    assert d_bench.abs().max() < 0.05, 'the benchmark files do not reproduce the published I-RMSD'
+
+
+def report_sides(irm):
+    """Which partner carries the I-RMSD, on the benchmark files."""
+    side = np.where(irm.bench_irmsd_ag > irm.bench_irmsd_ab, 'antigen', 'antibody')
+    print('larger side per case:', dict(pd.Series(side).value_counts()))
+    for diff, grp in irm.groupby('difficulty'):
+        print(f'{diff:6s}: median antibody side {grp.bench_irmsd_ab.median():.2f} A, '
+              f'antigen side {grp.bench_irmsd_ag.median():.2f} A')
+
+
+def antibody_tables(files, modelled, cases):
+    """antibody_rmsds of every case, as a long table and a per-residue table (both saved).
+
+    Returns (df, dfres, ab): one row per case x extent x scheme, one row per paired residue, and
+    the antibody_rmsds output per case.
+    """
+    records, residue_records, ab = [], [], {}
+    for idx, f in files.items():
+        ab[idx] = antibody_rmsds(f, chain_types(idx), modelled[idx]['A'])
+        records += [{'case_idx': idx, **row} for row in ab[idx]['rows']]
+        residue_records += [{'case_idx': idx, 'ref_code': cases.ref_code[idx], **row}
+                            for row in ab[idx]['residues']]
+    df, dfres = pd.DataFrame(records), pd.DataFrame(residue_records)
+    df.to_csv(RES / 'ab_rmsds_long.csv', index=False)
+    dfres.to_csv(RES / 'ab_rmsds_residues.csv', index=False)
+    return df, dfres, ab
+
+
+def report_pairing(files, df, ab):
+    """What the pairing of the whole antibody left out; returns the residues per extent and case."""
+    print(f'{len(df)} RMSD rows ({len(EXTENTS)} extents x {len(SCHEMES)} schemes x {len(files)} cases)')
+    n_bound = {idx: len(read_ca(f['reference'], 'A')) for idx, f in files.items()}
+    print('bound antibody residues left unpaired (no counterpart, or ambiguous):',
+          {idx: n_bound[idx] - len(ab[idx]['pairs']) for idx in files})
+    print('pairs dropped for crossing the light/heavy junction:',
+          {idx: a['n_cross_chain'] for idx, a in ab.items() if a['n_cross_chain']})
+    full = df[(df.extent == 'full') & (df.scheme == 'self')].set_index('case_idx')
+    print('paired residues the repair built:', {idx: n for idx, n in full.n_modelled.items() if n})
+    return df[df.scheme == 'self'].pivot_table(index='case_idx', columns='extent', values='n_res')[EXTENTS].T
+
 
 # Per-case headline numbers: column -> (extent, scheme)
 HEADLINE = {
@@ -558,3 +649,481 @@ def pick(df, extent, scheme):
     """RMSD of one extent and scheme from the long table, indexed by case."""
     sel = df[(df.extent == extent) & (df.scheme == scheme)]
     return sel.set_index('case_idx')['rmsd']
+
+
+def summary_table(irm, df):
+    """One row per case: the I-RMSDs and the HEADLINE RMSDs, sorted by published I-RMSD (saved)."""
+    summary = irm[['ref_code', 'unb_code', 'difficulty', 'benchmark_irmsd', 'bench_irmsd', 'wf_irmsd',
+                   'wf_irmsd_ab', 'wf_irmsd_ag']].copy()
+    for name, (extent, scheme) in HEADLINE.items():
+        summary[name] = pick(df, extent, scheme)
+    summary = summary.sort_values('benchmark_irmsd')
+    summary.to_csv(RES / 'ab_rmsds_summary.csv')
+    return summary
+
+
+def run_checks(files, df, summary, idx=13):
+    """Identity, lower bound, nesting and agreement of the two pairings; raises on a failure."""
+    f = files[idx]
+    identity = irmsd({**f, 'antibody': f['reference'], 'antigen': f['reference']})
+    assert identity['irmsd'] < 1e-6, identity
+    print(f"1. identity: I-RMSD of the bound complex against itself = {identity['irmsd']:.1e} A")
+
+    wide = df.pivot_table(index=['case_idx', 'extent'], columns='scheme', values='rmsd')
+    below = {s: int((wide[s] < wide['self'] - 1e-9).sum()) for s in ('fv_fw', 'full')}
+    assert not any(below.values()), below
+    print(f'2. lower bound: no fixed-frame value below its self value ({len(wide.dropna())} rows)')
+
+    sizes = df[df.scheme == 'fv_fw'].pivot_table(index='case_idx', columns='extent', values='n_res')
+    nest = {'framework + cdr_all == fv': (sizes.framework + sizes.cdr_all == sizes.fv).all(),
+            'H1 + ... + L3 == cdr_all': (sizes[CDRS].sum(axis=1) == sizes.cdr_all).all(),
+            'fv <= full': (sizes.fv <= sizes.full).all()}
+    assert all(nest.values()), nest
+    print('3. nesting:', ', '.join(nest))
+
+    gap = (summary.interface_ab - summary.wf_irmsd_ab).abs()
+    assert gap.max() < 0.01, gap
+    print(f'4. antibody side of the I-RMSD vs interface extent: largest difference {gap.max():.1e} A')
+
+
+def report_cdr_vs_framework(summary):
+    ratio = summary.cdr_fw / summary.framework
+    print('CDR displacement / framework RMSD, per case:')
+    print(f'  median {ratio.median():.2f}x, range {ratio.min():.2f}-{ratio.max():.2f}x')
+    print(f'  CDRs move more than the framework in {int((ratio > 1).sum())}/{len(ratio)} cases')
+    print(f'  Wilcoxon signed-rank (CDR vs framework): p = '
+          f'{stats.wilcoxon(summary.cdr_fw, summary.framework).pvalue:.2g}')
+
+
+def report_per_cdr(df, cases):
+    per_cdr = pd.DataFrame({c: pick(df, c, 'fv_fw') for c in CDRS})
+    print('median displacement in the framework frame, per CDR (A):')
+    print(per_cdr.median().round(2).to_string())
+    print(f'\nCDR-H3 is the largest of the six in {int((per_cdr.idxmax(axis=1) == "H3").sum())}/'
+          f'{len(per_cdr)} cases')
+    top = per_cdr.stack().nlargest(4)
+    print('largest single-loop displacements:',
+          ', '.join(f'{cases.ref_code[i]} {c} {v:.2f} A' for (i, c), v in top.items()))
+
+
+def report_elbow(summary):
+    for key, label in (('full', 'whole-Fab RMSD (full/self)   '), ('fv', 'whole-Fv RMSD (fv/self)      '),
+                       ('fv_in_full', 'Fv residual in a whole-Fab fit')):
+        print(f'{label}: {summary[key].min():.2f} - {summary[key].max():.2f} A '
+              f'(median {summary[key].median():.2f})')
+    print(f'the whole-Fab fit inflates the Fv RMSD by more than 50% in '
+          f'{int((summary.fv_in_full > 1.5 * summary.fv).sum())}/{len(summary)} cases')
+
+
+# ============================================================================
+# The largest CDR-H3 displacement
+# ============================================================================
+
+def worst_h3(cases, files, df, dfres, ab):
+    """The case whose CDR-H3 moves most in the framework frame, its loop residue by residue, and
+    its unbound antibody written out superposed on the bound one by the Fv framework Ca."""
+    idx = int(pick(df, 'H3', 'fv_fw').idxmax())
+    h3 = dfres[(dfres.case_idx == idx) & (dfres.region == 'H3')].sort_values('resid_unbound')
+    out = OUT / f'worst_H3_{cases.unb_code[idx]}_on_{cases.ref_code[idx]}.pdb'
+    return {'idx': idx, 'case': cases.loc[idx], 'files': files[idx], 'ab': ab[idx], 'h3': h3,
+            'tip': h3.loc[h3.dev_ca_fv_fw.idxmax()], 'rmsd': pick(df, 'H3', 'fv_fw')[idx],
+            'superposed': write_superposed(files[idx], ab[idx]['frames']['fv_fw'], out)}
+
+
+def report_worst_h3(w):
+    case, h3, tip = w['case'], w['h3'], w['tip']
+    print(f"largest CDR-H3 displacement: case {w['idx']}, {case.reference} (bound) vs {case.antibody} "
+          f"(unbound) = {w['rmsd']:.2f} A Ca RMSD")
+    print(f"fitted on {len(w['ab']['extents']['framework'])} framework Ca (no CDR atom takes part in the fit)")
+    print('superposed unbound antibody:', w['superposed'])
+    print(f'the loop tip moves furthest: IMGT {tip.imgt} {tip.resname} at {tip.dev_ca_fv_fw:.2f} A; its anchors '
+          f'(IMGT {h3.imgt.iloc[0]} and {h3.imgt.iloc[-1]}) stay within '
+          f'{max(h3.dev_ca_fv_fw.iloc[0], h3.dev_ca_fv_fw.iloc[-1]):.2f} A')
+    print(f'{int(h3.in_interface.sum())}/{len(h3)} loop residues are in the 10 A interface')
+    return (h3[['imgt', 'resname', 'resid_bound', 'resid_unbound', 'in_interface', 'dev_ca_fv_fw']]
+            .rename(columns={'dev_ca_fv_fw': 'Ca displacement (A)'}).round(2).set_index('imgt'))
+
+
+def h3_view(w):
+    """NGL view of the loop: bound Fv in blue, unbound Fv superposed in grey, antigen faint;
+    bound CDR-H3 green and unbound orange, the loop tip's Ca as a sphere."""
+    import nglview as nv
+
+    case, h3, tip, ab = w['case'], w['h3'], w['tip'], w['ab']
+    sel_bound, sel_unbound = ngl_selection(h3.resid_bound), ngl_selection(h3.resid_unbound)
+    fv = ab['extents']['fv']
+    view = nv.NGLWidget()
+    bound = view.add_component(w['files']['reference'], name=f'{case.ref_code} bound')
+    unbound = view.add_component(w['superposed'], name=f'{case.unb_code} unbound (superposed)')
+    view.clear_representations(component=0)
+    view.clear_representations(component=1)
+    bound.add_cartoon(selection=ngl_selection([ab['pairs'][u] for u in fv]), color='#6da7ec', opacity=0.3)
+    bound.add_cartoon(selection=':B', color='#b0b0b0', opacity=0.15)
+    unbound.add_cartoon(selection=ngl_selection(fv), color='#9a9a9a', opacity=0.3)
+    for comp, sel, color in ((bound, sel_bound, '#1baf7a'), (unbound, sel_unbound, '#eb6834')):
+        comp.add_cartoon(selection=sel, color=color, aspectRatio=2.0, scale=1.4)
+        comp.add_ball_and_stick(selection=sel, color=color, aspectRatio=1.6)
+    bound.add_spacefill(selection=f'{tip.resid_bound}:A and .CA', color='#1baf7a', radius=0.9)
+    unbound.add_spacefill(selection=f'{tip.resid_unbound}:A and .CA', color='#eb6834', radius=0.9)
+    view.add_label(selection=f'{tip.resid_bound}:A and .CA', component=0, labelType='format',
+                   labelFormat=f'{seq1(tip.resname)}{tip.imgt} ({tip.dev_ca_fv_fw:.1f} Å)',
+                   color='#111111', radius=2.2)
+    view.center(selection=sel_bound, component=0)
+    view._set_size('100%', '600px')
+    return view
+
+
+# ============================================================================
+# Docking
+# ============================================================================
+
+# The cluster runs copied back from the HPC (array/README.md), one folder per case
+HPC_RESULTS = ROOT / 'output' / 'hpc_results'
+DOCKING_RUNS = {'baseline': 'step1_12_haddock3_run', 'md': 'step2_26_haddock3_run',
+                'awh': 'step3_30_haddock3_run'}
+PROTOCOL_LABEL = {'baseline': 'baseline docking', 'md': 'free-MD CDR ensemble', 'awh': 'AWH CDR ensemble'}
+# caprieval after emref: every refined model of the run, 200 per run
+CAPRI_TABLE = Path('haddock_output') / 'run' / '08_caprieval' / 'capri_ss.tsv'
+# caprieval after seletopclusts; stage 3 simulates its cluster_1_model_1 (utils.haddock_best_model)
+CLUSTER_TABLE = Path('haddock_output') / 'run' / '11_caprieval' / 'capri_ss.tsv'
+# DockQ quality classes (Basu & Wallner 2016): acceptable, medium
+ACCEPTABLE, MEDIUM = 0.23, 0.49
+TOP = 10
+# The cluster runs of these cases in HPC_RESULTS were scored against a reference whose antigen
+# protomers came in file order (prepare_antigen before the fix of finding 2), which caps their
+# DockQ. They are to be run again: empty this once their new tables are copied in
+FILE_ORDER_REFERENCE = ('4FQI', '4GXU')
+
+
+def docking_table(cases):
+    """DockQ of the docked models per case and protocol, from the runs' own caprieval.
+
+    'acceptable' is the fraction of the refined models with DockQ >= ACCEPTABLE, what the protocol
+    samples; 'top' counts the acceptable ones among the TOP best HADDOCK scores, what scoring picks.
+    'start_dockq' is the DockQ of the run's best cluster model, which stage 3 starts the AWH from
+    when the run is the baseline one.
+    """
+    rows = []
+    for idx in cases.index:
+        for protocol, run in DOCKING_RUNS.items():
+            table = HPC_RESULTS / f'case_{idx}' / run / CAPRI_TABLE
+            if not table.is_file():
+                continue
+            d = pd.read_csv(table, sep='\t').sort_values('score')
+            best = d.loc[d.dockq.idxmax()]
+            clusters = pd.read_csv(HPC_RESULTS / f'case_{idx}' / run / CLUSTER_TABLE, sep='\t')
+            start = clusters[clusters.model.str.endswith('cluster_1_model_1.pdb')].dockq
+            rows.append({'case_idx': idx, 'ref_code': cases.ref_code[idx], 'protocol': protocol,
+                         'n_models': len(d), 'best_dockq': best.dockq, 'acceptable': (d.dockq >= ACCEPTABLE).mean(),
+                         'top': int((d.dockq.head(TOP) >= ACCEPTABLE).sum()),
+                         'start_dockq': start.iloc[0] if len(start) else np.nan,
+                         'best_fnat': best.fnat, 'best_irmsd': best.irmsd, 'best_lrmsd': best.lrmsd,
+                         'max_fnat': d.fnat.max(), 'min_irmsd': d.irmsd.min(), 'min_lrmsd': d.lrmsd.min()})
+    dock = pd.DataFrame(rows)
+    dock.to_csv(RES / 'ab_rmsds_docking.csv', index=False)
+    return dock
+
+
+def docking_gain(dock, summary):
+    """Per case: the CDR displacement next to each ensemble's change against the baseline docking."""
+    wide = dock.pivot_table(index='case_idx', columns='protocol',
+                            values=['best_dockq', 'acceptable', 'top', 'start_dockq'])
+    out = summary[['ref_code', 'difficulty', 'cdr_fw', 'H3_fw']].copy()
+    for metric in ('acceptable', 'best_dockq', 'top'):
+        for protocol in DOCKING_RUNS:
+            out[f'{metric}_{protocol}'] = wide[(metric, protocol)]
+        for protocol in ('md', 'awh'):
+            out[f'd_{metric}_{protocol}'] = wide[(metric, protocol)] - wide[(metric, 'baseline')]
+    out['awh_start_dockq'] = wide[('start_dockq', 'baseline')]
+    return out.sort_values('cdr_fw', ascending=False)
+
+
+def perfect_pose_dockq(files, bench_files):
+    """DockQ of the right answer, per case, against the workflow's reference and the benchmark's.
+
+    The right answer is the benchmark's unbound partners where they bind: the benchmark ships its
+    _u files superposed on the bound complex. It is fused as stage 1 fuses the docking input
+    (antibody chain A, antigen chain B, chains in file order) and scored by haddock3's caprieval
+    with its defaults, as the docking runs score their models. The workflow's reference is step1_6
+    as the current code prepares it; the benchmark's bound files order their chains to pair with
+    the unbound ones (ABEFCD with ABCDEF or HIJKLM in 4FQI and 4GXU), and so does prepare_antigen,
+    which follows the identifier.
+    """
+    import logging
+    from haddock.gear.yaml2cfg import read_from_yaml_config
+    from haddock.modules.analysis.caprieval import DEFAULT_CONFIG
+    from haddock.modules.analysis.caprieval.capri import CAPRI
+
+    logging.getLogger('haddock').setLevel(logging.WARNING)
+    params = read_from_yaml_config(DEFAULT_CONFIG)
+    rows = []
+    for idx, f in files.items():
+        work = Path(f['interface']).parent / 'perfect_pose'
+        work.mkdir(parents=True, exist_ok=True)
+        pose = work / 'unbound_at_bound_position.pdb'
+        pose.write_text('\n'.join(line for p in (bench_files[idx]['antibody'], bench_files[idx]['antigen'])
+                                  for line in Path(p).read_text().splitlines() if line.startswith('ATOM'))
+                        + '\nEND\n')
+        row = {'case_idx': idx}
+        for name, reference in (('workflow', f['reference']), ('benchmark', bench_files[idx]['reference'])):
+            (work / name).mkdir(exist_ok=True)
+            capri = CAPRI(1, pose, work / name, Path(reference), params)
+            with contextlib.redirect_stdout(io.StringIO()):
+                capri.run()
+            row.update({f'{k}_{name}': getattr(capri, k) for k in ('fnat', 'irmsd', 'lrmsd', 'dockq')})
+        rows.append(row)
+    pp = pd.DataFrame(rows).set_index('case_idx')
+    pp.to_csv(RES / 'ab_rmsds_perfect_pose.csv')
+    return pp
+
+
+# ============================================================================
+# Figures
+# ============================================================================
+
+# Categorical slots 1-2 and 1-5 of the reference data-viz palette, validated for colour-vision
+# deficiency all-pairs (2 classes) and adjacent-pairs (5 bars); the 5 bars carry a legend and the
+# summary table is the table view
+DIFF_COLOR = {'rigid': '#2a78d6', 'medium': '#eb6834'}
+SERIES = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4']
+# the hue order of the workflow's own results figure: baseline blue, free MD orange, AWH green
+PROTOCOL_COLOR = dict(zip(DOCKING_RUNS, SERIES))
+INK, INK_MUTED, GRID = '#0b0b0b', '#52514e', '#d9d8d4'
+# Sequential blue ramp, light -> dark, for magnitudes
+BLUES = LinearSegmentedColormap.from_list(
+    'blues', ['#cde2fb', '#9ec5f4', '#6da7ec', '#3987e5', '#256abf', '#184f95', '#0d366b'])
+
+
+def setup_figures():
+    """Output folders and the plotting theme of the notebook."""
+    for d in (RES, FIG):
+        d.mkdir(parents=True, exist_ok=True)
+    warnings.filterwarnings('ignore', category=UserWarning)
+    sns.set_theme(style='whitegrid', context='notebook', rc={'grid.color': GRID})
+    pd.set_option('display.width', 200, 'display.max_columns', 40)
+
+
+def _save(fig, name):
+    fig.tight_layout()
+    fig.savefig(FIG / name, dpi=150, bbox_inches='tight')
+    plt.show()
+
+
+def label_points(ax, xs, ys, labels, tol=0.04, same_units=True):
+    """Label the points of a scatter; points closer than `tol` of the data span share one label.
+
+    With `same_units` (an equal-aspect plot) both axes are scaled by the larger span, otherwise each
+    by its own, so that Å against percentage points does not count every x as close.
+    """
+    xs, ys = np.asarray(xs, float), np.asarray(ys, float)
+    sx, sy = np.ptp(xs) or 1.0, np.ptp(ys) or 1.0
+    if same_units:
+        sx = sy = max(sx, sy)
+    groups = []
+    for i in np.argsort(xs):
+        for group in groups:
+            if np.hypot((xs[i] - xs[group[0]]) / sx, (ys[i] - ys[group[0]]) / sy) < tol:
+                group.append(i)
+                break
+        else:
+            groups.append([i])
+    for group in groups:
+        right = max(group, key=lambda i: xs[i])
+        ax.annotate(', '.join(str(list(labels)[i]) for i in group), (xs[right], ys[right]), fontsize=7.5,
+                    xytext=(5, -3), textcoords='offset points', color=INK_MUTED)
+
+
+def _diagonal(ax, lim, label='y = x'):
+    ax.plot([0, lim], [0, lim], ls='--', color=INK_MUTED, lw=1, zorder=1, label=label)
+    ax.set(xlim=(0, lim), ylim=(0, lim), aspect='equal')
+
+
+def _by_difficulty(ax, data, x, y):
+    for diff, grp in data.groupby('difficulty'):
+        ax.scatter(grp[x], grp[y], s=70, color=DIFF_COLOR[diff], edgecolor='white', linewidth=1.5,
+                   label=diff, zorder=3)
+    label_points(ax, data[x], data[y], data.ref_code, tol=0.03)
+
+
+def _irmsd_panel(ax, irm, values, title, lim=2.2):
+    """Published vs computed I-RMSD; points past `lim` are drawn at the edge with their value."""
+    for diff, grp in irm.groupby('difficulty'):
+        inside = grp[values[grp.index] <= lim]
+        ax.scatter(values[inside.index], inside.benchmark_irmsd, s=70, color=DIFF_COLOR[diff],
+                   edgecolor='white', linewidth=1.5, label=diff, zorder=3)
+        for idx, row in grp[values[grp.index] > lim].iterrows():
+            ax.scatter(lim, row.benchmark_irmsd, s=90, marker='>', color=DIFF_COLOR[diff],
+                       edgecolor='white', linewidth=1.5, zorder=3, clip_on=False)
+            ax.annotate(f'{row.ref_code} {values[idx]:.2f} Å', (lim, row.benchmark_irmsd), fontsize=8,
+                        xytext=(-8, 8), textcoords='offset points', ha='right', color=INK)
+    inside = values <= lim
+    label_points(ax, values[inside], irm.benchmark_irmsd[inside], irm.ref_code[inside])
+    _diagonal(ax, lim)
+    ax.set(title=title, xlabel='computed I-RMSD (Å)', ylabel='published I-RMSD (Å)')
+    ax.legend(loc='lower right', fontsize=8)
+
+
+def plot_irmsd_vs_published(irm):
+    """Figure 1: the I-RMSD of the benchmark files and of the workflow against the published one."""
+    fig, axes = plt.subplots(1, 2, figsize=(13, 6.2))
+    _irmsd_panel(axes[0], irm, irm.bench_irmsd, 'benchmark files: the definition, reproduced')
+    _irmsd_panel(axes[1], irm, irm.wf_irmsd, 'workflow structures: what HADDOCK3 docks')
+    fig.suptitle('I-RMSD (Cα, 10 Å interface, both partners) against Benchmark 5.5', y=0.99)
+    _save(fig, 'fig1_irmsd_vs_published.png')
+
+
+def plot_irmsd_sides(irm):
+    """Figure 2: the antibody and antigen sides of the I-RMSD, benchmark files."""
+    fig, ax = plt.subplots(figsize=(6.5, 6.2))
+    _by_difficulty(ax, irm, 'bench_irmsd_ab', 'bench_irmsd_ag')
+    _diagonal(ax, 1.1 * max(irm.bench_irmsd_ab.max(), irm.bench_irmsd_ag.max()))
+    ax.set(xlabel='antibody side (Å)', ylabel='antigen side (Å)',
+           title='The two sides of the I-RMSD (benchmark files)')
+    ax.legend(loc='lower right', fontsize=8)
+    _save(fig, 'fig2_irmsd_sides.png')
+
+
+def plot_case_bars(summary):
+    """Figure 3: framework, Fv, interface and CDR RMSD per case, with the published I-RMSD."""
+    bars = [('framework', 'framework (self)'), ('fv', 'whole Fv (self)'),
+            ('interface_ab', 'interface, antibody side (self)'), ('cdr_fw', 'all CDRs (framework frame)'),
+            ('H3_fw', 'CDR-H3 (framework frame)')]
+    x, width = np.arange(len(summary)), 0.16
+    fig, ax = plt.subplots(figsize=(15, 6.5))
+    for i, (key, label) in enumerate(bars):
+        ax.bar(x + (i - 2) * width, summary[key], width, label=label, color=SERIES[i],
+               edgecolor='white', linewidth=1)
+    ax.plot(x, summary.benchmark_irmsd, 'D', color=INK, ms=7, label='published I-RMSD (both partners)', zorder=5)
+    ax.set_xticks(x, [f'{r.ref_code}/{r.unb_code}\n{r.difficulty}' for _, r in summary.iterrows()], fontsize=8)
+    ax.set(ylabel='Cα RMSD (Å)', xlabel='case (sorted by published I-RMSD)',
+           title='Bound vs unbound antibody: framework, Fv, interface and CDR loops')
+    ax.legend(fontsize=9, ncol=2)
+    _save(fig, 'fig3_per_case_bars.png')
+
+
+def plot_cdr_heatmap(df, summary):
+    """Figure 4: per-CDR RMSD per case, displacement and shape change."""
+    labels = [f'{r.ref_code}/{r.unb_code}' for _, r in summary.iterrows()]
+    fig, axes = plt.subplots(1, 2, figsize=(14, 6.5), sharey=True)
+    for ax, scheme, title in zip(axes, ('fv_fw', 'self'),
+                                 ('displacement (framework frame)', 'internal shape change (self-fit)')):
+        mat = pd.DataFrame({c: pick(df, c, scheme) for c in CDRS}).loc[summary.index]
+        sns.heatmap(mat, annot=True, fmt='.2f', cmap=BLUES, vmin=0, vmax=4.1, ax=ax,
+                    cbar_kws={'label': 'Cα RMSD (Å)'}, annot_kws={'fontsize': 8},
+                    linewidths=1, linecolor='white')
+        ax.set(title=f'CDR {title}', xlabel='CDR (IMGT)', ylabel='')
+        ax.set_yticks(np.arange(len(labels)) + 0.5, labels, rotation=0, fontsize=8)
+    axes[0].set_ylabel('case (sorted by published I-RMSD)')
+    fig.suptitle('Per-CDR bound vs unbound Cα RMSD. Blank: CDR-L2 is 3 residues wide, too few for a self-fit',
+                 y=1.0, fontsize=10)
+    _save(fig, 'fig4_cdr_heatmap.png')
+
+
+def plot_difficulty(summary):
+    """Figure 5: antibody RMSDs split by benchmark difficulty; returns the medians."""
+    panels = [('wf_irmsd_ab', 'interface, antibody side\n(self)'), ('fv', 'whole Fv\n(self)'),
+              ('cdr_fw', 'all CDRs\n(framework frame)'), ('H3_fw', 'CDR-H3\n(framework frame)')]
+    order = ['rigid', 'medium']
+    fig, axes = plt.subplots(1, len(panels), figsize=(14, 5), sharey=True)
+    for ax, (key, label) in zip(axes, panels):
+        sns.boxplot(data=summary, x='difficulty', y=key, order=order, hue='difficulty', legend=False, ax=ax,
+                    palette=DIFF_COLOR, width=0.55, showfliers=False, boxprops={'alpha': 0.45})
+        sns.stripplot(data=summary, x='difficulty', y=key, order=order, hue='difficulty', legend=False, ax=ax,
+                      palette=DIFF_COLOR, size=8, edgecolor='white', linewidth=1, jitter=0.18)
+        u = stats.mannwhitneyu(summary.loc[summary.difficulty == 'rigid', key],
+                               summary.loc[summary.difficulty == 'medium', key], alternative='two-sided')
+        ax.set(title=f'{label}\nMann-Whitney p = {u.pvalue:.3f}', xlabel='', ylabel='')
+    axes[0].set_ylabel('Cα RMSD (Å)')
+    n = summary.difficulty.value_counts()
+    fig.suptitle(f"Benchmark difficulty class vs antibody conformational change "
+                 f"({n.get('rigid', 0)} rigid, {n.get('medium', 0)} medium)", y=1.02)
+    _save(fig, 'fig5_difficulty_split.png')
+    return summary.groupby('difficulty')[[k for k, _ in panels]].median().round(2)
+
+
+def plot_elbow(summary):
+    """Figure 6: the Fv in a whole-Fab fit, and the CDR motion split into displacement and shape."""
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(13.5, 6))
+    for ax, x, y, line in ((ax1, 'fv', 'fv_in_full', 'y = x (no elbow change)'),
+                           (ax2, 'cdr_self', 'cdr_fw', 'y = x (pure shape change)')):
+        _by_difficulty(ax, summary, x, y)
+        _diagonal(ax, 1.1 * max(summary[x].max(), summary[y].max()), line)
+        ax.legend(loc='lower right', fontsize=9)
+    ax1.set(xlabel='Fv Cα RMSD, fitted on the Fv (Å)', ylabel='Fv Cα RMSD, fitted on the whole Fab (Å)',
+            title='Fitting the whole Fab misplaces the Fv:\nthe elbow angle differs between the entries')
+    ax2.set(xlabel='CDR Cα RMSD, fitted on the CDRs (Å)', ylabel='CDR Cα RMSD in the framework frame (Å)',
+            title='CDR motion decomposed:\nabove the line = rigid displacement of the loops')
+    _save(fig, 'fig6_elbow_and_decomposition.png')
+
+
+def plot_h3_profile(w):
+    """Figure 7: the displacement of every CDR-H3 residue of the worst case, interface marked."""
+    h3, case = w['h3'], w['case']
+    fig, ax = plt.subplots(figsize=(9, 4))
+    ax.bar(h3.imgt, h3.dev_ca_fv_fw, color=[SERIES[1] if i else SERIES[0] for i in h3.in_interface],
+           edgecolor='white', linewidth=1)
+    for i, (dev, name) in enumerate(zip(h3.dev_ca_fv_fw, h3.resname)):
+        ax.annotate(seq1(name), (i, dev), ha='center', va='bottom', fontsize=9, color=INK)
+    ax.axhline(w['rmsd'], ls='--', color=INK_MUTED, lw=1, label=f"loop RMSD = {w['rmsd']:.2f} Å")
+    handles = [Patch(color=SERIES[1], label='in the 10 Å interface'), Patch(color=SERIES[0], label='outside it')]
+    ax.set(xlabel='IMGT position', ylabel='Cα displacement (Å)',
+           title=f'CDR-H3 residue by residue, {case.ref_code} vs {case.unb_code} (framework frame)')
+    ax.legend(handles=ax.get_legend_handles_labels()[0] + handles, fontsize=9)
+    _save(fig, 'fig7_worst_h3_profile.png')
+
+
+def plot_docking_gain(gain, capped=()):
+    """Figure 8: what each CDR ensemble changes in the docking against the CDR displacement.
+
+    Both ensembles of a case sit on one vertical (the case's displacement), joined by a thin line.
+    `capped` are the case indices still scored against the file-order reference
+    (FILE_ORDER_REFERENCE), drawn hollow.
+    """
+    gain = gain.dropna(subset=['d_acceptable_awh'])
+    hollow = gain.index.isin(capped)
+    fig, axes = plt.subplots(1, 2, figsize=(13.5, 5.6))
+    for ax, metric, scale, ylabel in ((axes[0], 'acceptable', 100, 'change in acceptable models (% points)'),
+                                      (axes[1], 'best_dockq', 1, 'change in best DockQ')):
+        ys = {p: scale * gain[f'd_{metric}_{p}'] for p in ('md', 'awh')}
+        ax.vlines(gain.cdr_fw, ys['md'], ys['awh'], color=GRID, lw=1.5, zorder=1)
+        for p, y in ys.items():
+            ax.scatter(gain.cdr_fw[~hollow], y[~hollow], s=60, color=PROTOCOL_COLOR[p], edgecolor='white',
+                       linewidth=1.2, zorder=3, label=f'{PROTOCOL_LABEL[p]} − baseline')
+            ax.scatter(gain.cdr_fw[hollow], y[hollow], s=60, facecolor='white', edgecolor=PROTOCOL_COLOR[p],
+                       linewidth=1.5, zorder=3)
+        # the hollow points are named in the legend
+        top = np.maximum(ys['md'], ys['awh'])
+        label_points(ax, gain.cdr_fw[~hollow], top[~hollow], gain.ref_code[~hollow], tol=0.07, same_units=False)
+        ax.axhline(0, color=INK_MUTED, lw=1, zorder=1)
+        ax.set(xlabel='CDR Cα displacement, framework frame (Å)', ylabel=ylabel)
+    if hollow.any():
+        axes[0].scatter([], [], s=60, facecolor='white', edgecolor=INK_MUTED, linewidth=1.5,
+                        label=f"reference caps DockQ: {', '.join(gain.ref_code[hollow])}")
+    fig.legend(*axes[0].get_legend_handles_labels(), loc='lower center', ncol=3, fontsize=9,
+               bbox_to_anchor=(0.5, -0.06), frameon=False)
+    axes[0].set_title(f'Sampling: models with DockQ ≥ {ACCEPTABLE}, of 200')
+    axes[1].set_title('Quality: the best model')
+    fig.suptitle('Does a larger bound-vs-unbound CDR change make the CDR ensembles pay off?', y=1.0)
+    _save(fig, 'fig8_docking_gain_vs_cdr.png')
+
+
+def report_docking_gain(gain, capped=()):
+    """Spearman correlation of the CDR displacement with what each ensemble changes."""
+    for protocol in ('md', 'awh'):
+        g = gain.dropna(subset=[f'd_acceptable_{protocol}'])
+        parts = []
+        for metric, label in (('acceptable', 'acceptable models'), ('best_dockq', 'best DockQ'),
+                              ('top', f'acceptable in top {TOP}')):
+            r = stats.spearmanr(g.cdr_fw, g[f'd_{metric}_{protocol}'])
+            parts.append(f'{label} rho = {r.statistic:+.2f} (p = {r.pvalue:.2f})')
+        print(f'{PROTOCOL_LABEL[protocol]} vs CDR displacement, {len(g)} cases: ' + ', '.join(parts))
+        d = g[f'd_acceptable_{protocol}']
+        print(f'    more acceptable models than the baseline in {int((d > 0.005).sum())}, fewer in '
+              f'{int((d < -0.005).sum())}, as many in {int((d.abs() <= 0.005).sum())}')
+    g = gain.dropna(subset=['d_acceptable_awh'])
+    r = stats.spearmanr(g.awh_start_dockq, g.d_acceptable_awh)
+    print(f'AWH gain in acceptable models vs DockQ of the baseline model it starts from: '
+          f'rho = {r.statistic:+.2f} (p = {r.pvalue:.2f})')
+    if len(capped):
+        print('cases whose reference caps DockQ (their DockQ is not comparable):',
+              ', '.join(gain.ref_code[gain.index.isin(capped)]))
