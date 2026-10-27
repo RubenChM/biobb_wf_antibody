@@ -11,8 +11,7 @@
 #SBATCH --mail-type=END,FAIL,ARRAY_TASKS
 #SBATCH --mail-user=ruben.chaves@irbbarcelona.org
 
-# Launch with: sbatch --array=0-1,4-5,7-14 job_array.sh
-# 2,3,6 and 15 are skipped because the are missing aminoacids
+# Launch with: sbatch --array=0-15 job_array.sh
 
 echo SLURM_CPUS_PER_TASK $SLURM_CPUS_PER_TASK
 echo SLURM_CPUS_ON_NODE $SLURM_CPUS_ON_NODE

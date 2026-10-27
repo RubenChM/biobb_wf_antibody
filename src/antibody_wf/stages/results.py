@@ -9,12 +9,14 @@ writes the figures under ``output/results/case_<index>`` and joins them into
 """
 
 import argparse
+import math
 import re
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 import matplotlib
 import yaml
+from matplotlib.lines import Line2D
 
 from antibody_wf.utils import resolve_complex
 
@@ -74,16 +76,23 @@ def find_case_dirs(results_dir):
     )
 
 
-def complex_title(case_dir):
-    """Describe a case using the identifiers in its generated configuration."""
+def case_complex_ids(case_dir):
+    """Read the reference, antibody and antigen identifiers of a case, or None."""
     config_path = case_dir / "workflow.yml"
     if not config_path.is_file():
-        return case_dir.name
+        return None
 
     with config_path.open() as config_file:
         config = yaml.safe_load(config_file) or {}
     properties = config.get("step0_0_pdb_codes", {}).get("properties", {})
-    complex_ids = resolve_complex(properties)
+    return resolve_complex(properties)
+
+
+def complex_title(case_dir):
+    """Describe a case using the identifiers in its generated configuration."""
+    complex_ids = case_complex_ids(case_dir)
+    if complex_ids is None:
+        return case_dir.name
     return (
         f"{case_dir.name}: {complex_ids['antibody']['pdb_code']} + "
         f"{complex_ids['antigen']['pdb_code']} "
@@ -148,13 +157,8 @@ def create_protocol_figure(case_dir, slug, label, docking_dir, overwrite=False):
     return output_path
 
 
-def create_superposed_figure(case_dir, overwrite=False):
-    """Overlay every available protocol when at least two are complete."""
-    output_path = OUTPUT_DIR / case_dir.name / "superposed_dockq_vs_score.png"
-    if output_path.is_file() and not overwrite:
-        print(f"  exists:  {output_path}")
-        return output_path
-
+def completed_protocols(case_dir):
+    """Return (slug, label, docking_dir) for every protocol whose docking finished."""
     available_protocols = []
     for slug, label, relative_dirs in PROTOCOLS:
         docking_dir = find_docking_dir(case_dir, relative_dirs)
@@ -162,7 +166,32 @@ def create_superposed_figure(case_dir, overwrite=False):
             available_protocols.append(
                 (slug, protocol_label(case_dir, slug, label), docking_dir)
             )
+    return available_protocols
 
+
+def plot_superposed(axis, protocols):
+    """Overlay the DockQ vs score plots of several protocols on one axis."""
+    for slug, label, docking_dir in protocols:
+        color = PROTOCOL_COLORS[slug]
+        plot_dockq_vs_score(
+            docking_dir,
+            ax=axis,
+            colors=(color, color),
+            label=label,
+            marker_alpha=0.35,
+            marker_size=24,
+            normalize_density=False,
+        )
+
+
+def create_superposed_figure(case_dir, overwrite=False):
+    """Overlay every available protocol when at least two are complete."""
+    output_path = OUTPUT_DIR / case_dir.name / "superposed_dockq_vs_score.png"
+    if output_path.is_file() and not overwrite:
+        print(f"  exists:  {output_path}")
+        return output_path
+
+    available_protocols = completed_protocols(case_dir)
     if len(available_protocols) < 2:
         print("  missing: Superposed protocols (fewer than two completed dockings)")
         return None
@@ -170,17 +199,7 @@ def create_superposed_figure(case_dir, overwrite=False):
     output_path.parent.mkdir(parents=True, exist_ok=True)
     figure, axis = plt.subplots(figsize=(7, 7))
     try:
-        for slug, label, docking_dir in available_protocols:
-            color = PROTOCOL_COLORS[slug]
-            plot_dockq_vs_score(
-                docking_dir,
-                ax=axis,
-                colors=(color, color),
-                label=label,
-                marker_alpha=0.35,
-                marker_size=24,
-                normalize_density=False,
-            )
+        plot_superposed(axis, available_protocols)
         axis.set_title("")
         figure.subplots_adjust(top=0.72, right=0.80)
         figure.suptitle("All protocols", fontsize=12, y=0.92)
@@ -292,6 +311,53 @@ def create_gallery(images_dir=OUTPUT_DIR, case_names=None, case_titles=None):
     return output_path
 
 
+def create_superposed_grid(case_dirs, output_dir=OUTPUT_DIR, columns=4):
+    """Superposed protocols of every case, titled by reference PDB.
+
+    A case without every docking done keeps its slot, empty, so the grid
+    layout does not shift when it completes.
+    """
+    cases = [(case_dir, completed_protocols(case_dir)) for case_dir in case_dirs]
+    if not any(len(protocols) == len(PROTOCOLS) for _, protocols in cases):
+        print("  missing: Superposed grid (no case with every protocol docked)")
+        return None
+
+    rows = math.ceil(len(cases) / columns)
+    figure, axes = plt.subplots(rows, columns, figsize=(4.8 * columns, 4.8 * rows),
+                                squeeze=False)
+    try:
+        for axis, (case_dir, protocols) in zip(axes.flat, cases):
+            complex_ids = case_complex_ids(case_dir)
+            title = complex_ids["reference"]["pdb_code"] if complex_ids else case_dir.name
+            if len(protocols) < len(PROTOCOLS):
+                # At the height of the other titles, which sit on the density panel
+                axis.set_title(title, fontsize=14, fontweight="bold", y=1.2)
+                axis.text(0.5, 0.5, "docking pending", ha="center", va="center",
+                          color="gray", fontsize=12, transform=axis.transAxes)
+                axis.axis("off")
+                continue
+            plot_superposed(axis, protocols)
+            axis.get_legend().remove()
+            axis.set_title("")
+            # Above the score density panel, which sits on top of the axis
+            axis._dockq_histx.set_title(title, fontsize=14, fontweight="bold")
+        for axis in axes.flat[len(cases):]:
+            axis.set_visible(False)
+        handles = [Line2D([], [], color=PROTOCOL_COLORS[slug], linewidth=2, label=label)
+                   for slug, label, _ in PROTOCOLS]
+        figure.legend(handles=handles, loc="lower center", ncol=len(handles),
+                      fontsize=13, frameon=False, bbox_to_anchor=(0.5, 0.0))
+        figure.subplots_adjust(wspace=0.45, hspace=0.6, bottom=0.07)
+        output_path = output_dir / "superposed_grid.png"
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        figure.savefig(output_path, dpi=150, bbox_inches="tight")
+    finally:
+        plt.close(figure)
+
+    print(f"  wrote:   {output_path}")
+    return output_path
+
+
 def main(results_dir, overwrite=False):
     """Create figures for every ``case_*`` folder below ``results_dir``."""
     results_dir = Path(results_dir).expanduser().resolve()
@@ -308,6 +374,7 @@ def main(results_dir, overwrite=False):
         case_names=[case_dir.name for case_dir in case_dirs],
         case_titles={case_dir.name: complex_title(case_dir) for case_dir in case_dirs},
     )
+    create_superposed_grid(case_dirs)
     print(f"Found {len(case_dirs)} cases and {len(images)} available result images.")
     return images
 

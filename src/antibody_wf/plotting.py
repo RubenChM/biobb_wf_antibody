@@ -187,6 +187,8 @@ def plot_dockq_vs_score(dir, ax = None, colors = ['blue', 'orange'], label = Non
 
     _plot_density(ax._dockq_histy, df_em['dockq'], colors[0], orientation='y')
     # _plot_density(ax._dockq_histy, df_clust['dockq'], colors[1], orientation='y')
+    # On top, in the free corner: at the bottom it runs into the last score tick label
+    ax._dockq_histy.xaxis.set_label_position('top')
     ax._dockq_histy.set_xlabel('Density')
     ax._dockq_histy.set_ylabel('')
     ax._dockq_histy.set_ylim(ax.get_ylim())
