@@ -17,7 +17,6 @@ from biobb_pdb_tools.pdb_tools import biobb_pdb_keepcoord
 from biobb_pdb_tools.pdb_tools import biobb_pdb_reres
 from biobb_pdb_tools.pdb_tools import biobb_pdb_chain
 from biobb_pdb_tools.pdb_tools import biobb_pdb_chainxseg
-from biobb_pdb_tools.pdb_tools import biobb_pdb_mkensemble
 from biobb_pdb_tools.pdb_tools.biobb_pdb_merge import biobb_pdb_merge
 from biobb_haddock.haddock_restraints.haddock_interface import haddock_interface
 from biobb_haddock.haddock_restraints.haddock3_passive_from_active import haddock3_passive_from_active
@@ -119,31 +118,60 @@ def prepare_antibody(input_pdb_path: str, output_pdb_path: str, chains: str,
 def prepare_antigen(input_pdb_path, output_pdb_path, chains, model: str | None):
     """Prepare an antigen structure to meet the HADDOCK3 requirements.
 
-    The requested chains are extracted and relabelled as a single chain B.
+    Every chain is extracted and cleaned on its own and the chains are joined in
+    the order they are listed, then relabelled as a single chain B. That order is
+    what pairs the protomers of the reference with those of the unbound antigen:
+    4GXU holds A-F in file order but '4GXU_MN:ABEFCD' pairs E/F with the second
+    protomer of 1RUZ. The copies of an assembly are named among the antigen
+    chains only (utils.merge_models), so the identifier can list them too.
     """
     input_pdb_path = os.path.abspath(input_pdb_path)
     step_path = os.path.dirname(output_pdb_path)
+    chain_ids = [ch.strip() for ch in chains.split(',')]
+    if model is None:
+        # The assembly can hold its copies as MODELs (4FQI holds its three A/B
+        # protomers so), join them instead of fusing them in MODEL order.
+        os.makedirs(step_path, exist_ok=True)
+        merged_pdb_path = os.path.join(step_path, 'assembly_merged.pdb')
+        with open(input_pdb_path) as f:
+            merged = utils.merge_models(f.read(), chain_ids)
+        with open(merged_pdb_path, 'w') as f:
+            f.write(merged)
+        input_pdb_path = merged_pdb_path
+    chain_pdb_paths = []
+    with fu.change_dir(step_path):
+        for ch in chain_ids:
+            chain_pdb_paths.append(os.path.join(step_path, f'chain_{ch}.pdb'))
+            steps = []
+            if model:
+                steps += [(biobb_pdb_selmodel.biobb_pdb_selmodel, {'models': model})]  # 0. Extract the requested model
+            steps += [
+                (biobb_pdb_tidy.biobb_pdb_tidy,           {'strict': True}),    # 1. Adhere to the format specifications
+                (biobb_pdb_selchain.biobb_pdb_selchain,   {'chains': ch}),      # 2. Extract chain
+                (biobb_pdb_delhetatm.biobb_pdb_delhetatm, {}),                  # 3. Remove all HETATM records
+                (biobb_pdb_fixinsert.biobb_pdb_fixinsert, {}),                  # 4. Delete insertion codes and shift residue numbering
+                (biobb_pdb_selaltloc.biobb_pdb_selaltloc, {}),                  # 5. Select altloc labels (highest occupancy)
+                (biobb_pdb_keepcoord.biobb_pdb_keepcoord, {}),                  # 6. Remove all non-coordinate records
+                (biobb_pdb_tidy.biobb_pdb_tidy,           {})                   # 7. Adhere to the format specifications
+            ]
+            utils.pdb_tools_pipeline(input_pdb_path, chain_pdb_paths[-1], steps)
+            utils.remove_model_lines(chain_pdb_paths[-1])
+            check_prepared(chain_pdb_paths[-1], f'chain {ch}', input_pdb_path)
+
+    # Join the cleaned chains in the listed order
+    joined_pdb_path = os.path.join(step_path, 'chains_joined.pdb')
+    merge_structures(chain_pdb_paths, joined_pdb_path)
 
     with fu.change_dir(step_path):
-        steps = []
-        if model:
-            steps += [(biobb_pdb_selmodel.biobb_pdb_selmodel, {'models': model})] # Extract the requested model
-        steps += [
-            (biobb_pdb_mkensemble.biobb_pdb_mkensemble,         {}),       # Join models forming the biological assembly
-            (biobb_pdb_tidy.biobb_pdb_tidy, {'strict': True}),            # 1. Adhere to the format specifications
-            (biobb_pdb_selchain.biobb_pdb_selchain, {'chains': chains}),  # 2. Extract chains
-            (biobb_pdb_chain.biobb_pdb_chain, {'chain': 'B'}),            # 4. Modify the chain identifier column
-            (biobb_pdb_chainxseg.biobb_pdb_chainxseg, {}),                # 5. Swap the segment identifier for the chain identifier
-            (biobb_pdb_delhetatm.biobb_pdb_delhetatm, {}),                # 6. Remove all HETATM records
-            (biobb_pdb_fixinsert.biobb_pdb_fixinsert, {}),                # 7. Delete insertion codes and shift residue numbering
-            (biobb_pdb_selaltloc.biobb_pdb_selaltloc, {}),                # 8. Select altloc labels (highest occupancy)
-            (biobb_pdb_keepcoord.biobb_pdb_keepcoord, {}),                # 9. Remove all non-coordinate records
-            (biobb_pdb_reres.biobb_pdb_reres,         {'number': 1}),     # 3. Renumber the residues starting from 1
-            (biobb_pdb_tidy.biobb_pdb_tidy, {'strict': True})             # 10. Adhere to the format specifications
+        steps = [
+            # Renumbered while the chain IDs still differ: pdb_reres tells residues
+            # apart by name, chain and number, and two chains can meet at one number
+            (biobb_pdb_reres.biobb_pdb_reres, {'number': 1}),       # 1. Renumber the residues starting from 1
+            (biobb_pdb_chain.biobb_pdb_chain, {'chain': 'B'}),      # 2. Modify the chain identifier column
+            (biobb_pdb_chainxseg.biobb_pdb_chainxseg, {}),          # 3. Swap the segment identifier for the chain identifier
+            (biobb_pdb_tidy.biobb_pdb_tidy, {'strict': True})       # 4. Adhere to the format specifications
         ]
-        utils.pdb_tools_pipeline(input_pdb_path, output_pdb_path, steps)
-        utils.remove_model_lines(output_pdb_path)
-        check_prepared(output_pdb_path, f'chains {chains}', input_pdb_path)
+        utils.pdb_tools_pipeline(joined_pdb_path, output_pdb_path, steps)
 
 
 def merge_structures(input_pdb_paths, output_pdb_path):

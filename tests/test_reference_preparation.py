@@ -20,7 +20,6 @@ output/reference_test/inputs, the benchmark in output/benchmark5.5.
 """
 import sys
 from collections import Counter
-from itertools import permutations
 from pathlib import Path
 
 import numpy as np
@@ -82,11 +81,9 @@ def reference(request):
     interface_txt = str(steps['step1_7'] / 'reference_interface.txt')
     haddock_interface(input_pdb_path=complex_pdb, output_txt_path=interface_txt,
                       properties=dict(CONFIG['step1_7_haddock_interface']['properties'], **restart))
-    entry_chain_order = list(dict.fromkeys(line[21] for line in src.read_text().splitlines()
-                                           if line.startswith('ATOM')))
     return {'case': request.param, 'identifier': identifier, 'complex': complex_pdb,
             'antibody': antibody, 'antigen': antigen, 'antibody_chains': antibody_chains.split(','),
-            'antigen_chains': antigen_chains.split(','), 'entry_chain_order': entry_chain_order,
+            'antigen_chains': antigen_chains.split(','),
             'chain_dir': steps['step1_3'], 'interface': utils.read_interface(interface_txt)}
 
 
@@ -107,31 +104,17 @@ def test_reference_is_benchmark_bound_complex(reference):
             for ch in reference['antibody_chains']}
     ref_r = read_ca(BENCHMARK_DIR / f'{code}_r_b.pdb')
     x, y, _ = paired_coordinates(ours, ref_r, pair_chains(ours, ref_r, by_id=False))
-    # The antigen chains are fused into chain B in the order of the entry, so join the
-    # benchmark antigen chains in that order; by sequence alone, identical copies (the
-    # HA trimers of 4FQI and 4GXU) could be joined in any order
+    # The antigen chains are fused into chain B in the order the identifier lists them, which
+    # is the order of the benchmark's bound file: the one that pairs its protomers with those
+    # of the unbound antigen (ABEFCD in 4FQI and 4GXU, whose entries hold ABCDEF). So the
+    # benchmark chains are joined in file order; identical protomers in another order would
+    # align by sequence just as well, but not superpose
     antigen = read_ca(reference['antigen'])['B']
-    ref_l = read_ca(BENCHMARK_DIR / f'{code}_l_b.pdb')
-    seq = ''.join(r[0] for r in antigen)
-    in_entry = [c for c in reference['entry_chain_order'] if c in reference['antigen_chains']]
-    if set(in_entry) == set(ref_l):
-        orders = [in_entry]
-    else:
-        # The benchmark relabelled the chains (the copies of the 4FQI assembly share their
-        # IDs): keep the orders that align best and let the superposition pick among them
-        scored = [(len(align(seq, ''.join(r[0] for c in o for r in ref_l[c]))), o)
-                  for o in permutations(ref_l)]
-        best = max(s for s, _ in scored)
-        orders = [o for s, o in scored if s == best]
-
-    def superposed(order):
-        joined = sum((ref_l[c] for c in order), [])
-        pairs = align(seq, ''.join(r[0] for r in joined))
-        xx = np.vstack([x, [antigen[i][1] for i, _ in pairs]])
-        yy = np.vstack([y, [joined[j][1] for _, j in pairs]])
-        return rmsd(xx, yy), len(xx)
-
-    value, n_ca = min(superposed(o) for o in orders)
+    joined = sum(read_ca(BENCHMARK_DIR / f'{code}_l_b.pdb').values(), [])
+    pairs = align(''.join(r[0] for r in antigen), ''.join(r[0] for r in joined))
+    xx = np.vstack([x, [antigen[i][1] for i, _ in pairs]])
+    yy = np.vstack([y, [joined[j][1] for _, j in pairs]])
+    value, n_ca = rmsd(xx, yy), len(xx)
     limit = BOUND_RMSD_MAX if code == reference['identifier'][:4] else OTHER_CRYSTAL_RMSD_MAX
     print(f"{reference['identifier']} vs {code}_r_b + {code}_l_b: {value:.2f} A over {n_ca} CA")
     assert value < limit, \

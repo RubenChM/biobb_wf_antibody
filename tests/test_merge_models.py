@@ -21,3 +21,17 @@ def test_repeated_chain_gets_next_free_id_and_seqres():
 def test_distinct_chains_are_untouched():
     text = '\n'.join(['MODEL        1', ATOM.format('A', 1), ATOM.format('B', 2), 'ENDMDL'])
     assert [l[21] for l in merge_models(text).splitlines() if l.startswith('ATOM')] == ['A', 'B']
+
+
+def test_copies_named_among_the_selected_chains():
+    """The 4FQI assembly: three MODELs of the antigen A/B and the Fab H/L. Among the antigen
+    chains alone the copies become C/D and E/F, as the benchmark names them; among every chain
+    the Fab copies take C-F first."""
+    def model(n):
+        return [f'MODEL        {n}'] + [ATOM.format(c, n) for c in 'ABHL'] + ['ENDMDL']
+    text = '\n'.join(model(1) + model(2) + model(3))
+
+    def chains(out):
+        return ''.join(l[21] for l in out.splitlines() if l.startswith('ATOM'))
+    assert chains(merge_models(text, list('ABEFCD'))) == 'ABCDEF'
+    assert chains(merge_models(text)) == 'ABHLCDEFGIJK'

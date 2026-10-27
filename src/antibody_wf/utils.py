@@ -119,22 +119,29 @@ def write_seqres_fasta(pdb_path, chains, fasta_path):
     return str(fasta_path)
 
 
-def merge_models(pdb_text):
+def merge_models(pdb_text, chains=None):
     """Join the MODELs of an assembly into one model with a distinct ID per chain.
 
     PDB-format assemblies hold one MODEL per generated copy and repeat the chain
     IDs (1TGJ is two chains A). A copy whose chain ID is taken gets the next free
     one, and the SEQRES of the original chain is duplicated under the new ID.
+    With `chains`, only the chains of that list are kept, so the free IDs are
+    drawn among them alone. That names the copies as the docking benchmark does:
+    the three A/B protomers of the 4FQI assembly become A/B, C/D and E/F, where
+    the Fab chains H/L of every MODEL would otherwise take C/D and E/F first.
     """
+    keep = None if chains is None else set(chains)
     models = [[]]
     seqres = []
     for line in pdb_text.splitlines():
         if line[:6] == 'SEQRES':
-            seqres.append(line)
+            if keep is None or line[11] in keep:
+                seqres.append(line)
         elif line[:6] == 'ENDMDL':
             models.append([])
         elif line[:6].strip() in ('ATOM', 'HETATM', 'TER'):
-            models[-1].append(line)
+            if keep is None or line[21] in keep:
+                models[-1].append(line)
     models = [m for m in models if m]
     all_ids = {line[21] for m in models for line in m}
     free = (c for c in string.ascii_uppercase + string.digits if c not in all_ids)
@@ -204,7 +211,9 @@ def repair_structure(input_pdb_path, output_pdb_path, chains, model=None,
     with TemporaryDirectory(dir=output.parent) as folder:
         selected_model = str(Path(folder) / 'model.pdb')
         if assembly and model is None:
-            Path(selected_model).write_text(merge_models(Path(input_pdb_path).read_text()))
+            # The copies are named as prepare_antigen names them in the reference
+            Path(selected_model).write_text(merge_models(
+                Path(input_pdb_path).read_text(), [c.strip() for c in chains.split(',')]))
             fasta_source = selected_model  # its SEQRES covers the renamed chains
         else:
             fasta_source = input_pdb_path
