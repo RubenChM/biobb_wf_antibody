@@ -15,7 +15,7 @@ PROJECT_DIR = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__fi
 TEMPLATE_CONFIG = os.path.join(PROJECT_DIR, 'config', 'workflow.yml')
 COMPLEXES = (
     # Reference         Antibody   Antigen
-    ("2VXT_HL:I",	   "2VXU_HL", "1J0S_A"),
+    ("2VXT_HL:I",	   "2VXU_HL", "1J0S_A(6)"),
     ("2W9E_HL:A",	   "2W9D_HL", "1QM1_A"),
     ("3EOA_LH:I",	   "3EO9_LH", "3F74_A"),
     ("3HMX_LH:AB",	   "3HMW_LH", "1F45_AB"),

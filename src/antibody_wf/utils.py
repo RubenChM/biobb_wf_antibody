@@ -371,8 +371,15 @@ def positional_alignment_score(ref_res, target_res, alignment):
     return np.median(distances) + 0.25 * np.percentile(distances, 90)
 
 
-def map_contact_residues(reference_pdb, target_pdb, chain, contacts, poslaign=False):
-    """Align observed residues and map reference contacts to cleaned PDB numbers."""
+def map_contact_residues(reference_pdb, target_pdb, chain, contacts, poslaign=False,
+                         drop_ambiguous=False):
+    """Align observed residues and map reference contacts to cleaned PDB numbers.
+
+    Equally scoring alignments that map a contact differently raise, unless 'poslaign'
+    picks one by structure or 'drop_ambiguous' leaves those contacts unmapped (None),
+    which is what mapping a whole chain needs: a gap next to repeated residues has
+    several placements and no structural winner.
+    """
     selection = f"protein and chainID {chain}"
     ref_res = mda.Universe(reference_pdb).select_atoms(selection).residues
     target_res = mda.Universe(target_pdb).select_atoms(selection).residues
@@ -427,6 +434,9 @@ def map_contact_residues(reference_pdb, target_pdb, chain, contacts, poslaign=Fa
                     )
 
             contact_map = contact_maps[best]
+        elif drop_ambiguous:
+            contact_map = {resid: None if resid in ambiguous else target
+                           for resid, target in contact_maps[0].items()}
         else:
             raise ValueError(f"Chain {chain}: equally scoring alignments disagree on contacts {ambiguous}; "
                          "select corresponding chains before mapping")

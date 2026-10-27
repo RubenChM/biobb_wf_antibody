@@ -6,7 +6,21 @@ HPC_PATH=mn5t:/gpfs/projects/irb93/ruben/ab_wf
 cd ../../env
 pixi lock
 ./build_haddock3_wheel.sh           # see "haddock3" below; only when its version changes
-pixi-pack --create-executable --inject haddock3-*.whl
+python -m pip wheel --no-deps --no-build-isolation -w wheels/ /home/rchaves/repo/biobb/biobb_all/biobb/biobb_common
+python -m pip wheel --no-deps --no-build-isolation -w wheels/ /home/rchaves/repo/biobb/biobb_all/biobb/biobb_model
+# Biopython from the PDBIO TER fix (https://github.com/biopython/biopython/pull/5391):
+# released PDBIO writes 81-column TER records, pdb_mkensemble then drops the next atom
+git -C /home/rchaves/repo/biopython switch pdbio-ter-record
+python -m pip wheel --no-deps --no-build-isolation -w wheels/ /home/rchaves/repo/biopython
+python -m pip wheel --no-deps --no-build-isolation -w wheels/ /home/rchaves/repo/biobb/biobb_structure_checking
+python -m pip wheel --no-deps --no-build-isolation -w wheels/ /home/rchaves/repo/biobb/biobb_wf_antibody/src
+# TEMPORARY, until the pdb_selaltloc fix is released in pdb-tools (> 2.7.0): the
+# conda pdb-tools drops residues that only exist as altlocs before a 99 -> 100
+# style numbering boundary (case 5 lost ARG 99). Build it from the fixed checkout.
+# Drop these two lines once https://github.com/haddocking/pdb-tools/pull/188 is released.
+git -C /home/rchaves/repo/pdb-tools switch fix-selaltloc-resnum
+python -m pip wheel --no-deps --no-build-isolation -w wheels/ /home/rchaves/repo/pdb-tools
+pixi-pack --create-executable --inject haddock3-*.whl --inject wheels/*.whl
 scp environment.sh $HPC_PATH/
 
 # Sync the workflow code. Only transfers files that changed (size/mtime)
@@ -35,6 +49,12 @@ source activate.sh
 sed -i "s/^license = r'.*'/license = r'$(cat biobb_wf_antibody/config/modeller_key.txt)'/" \
     env/lib/modeller-*/modlib/modeller/config.py
 python -c "import modeller"   # fails here if the key is wrong
+# The env holds a copy of antibody_wf from when environment.sh was packed, the
+# rsync of src/ does not update it. Reinstall after every code sync; no network
+# on MN5, so build with the env's setuptools and never contact PyPI.
+python -m pip install --no-deps --no-build-isolation --no-index --force-reinstall ./src
+# No output = the env runs the synced code
+diff -r -x __pycache__ src/antibody_wf "$(python -c 'import antibody_wf; print(antibody_wf.__path__[0])')"
 # Test BioBBs and haddock3 are available
 gmx_image --help
 haddock3 --version

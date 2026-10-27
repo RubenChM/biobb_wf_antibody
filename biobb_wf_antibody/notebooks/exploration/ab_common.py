@@ -58,7 +58,7 @@ AA3TO1 = {k.upper(): v for k, v in protein_letters_3to1.items()}
 # They are NOT always H/L, and in 4GXU the chains named H and L are the *antigen*.
 RefAbAgs = (
     # Reference         Antibody   Antigen
-    ("2VXT_HL:I",	   "2VXU_HL", "1J0S_A"),
+    ("2VXT_HL:I",	   "2VXU_HL", "1J0S_A(6)"),
     ("2W9E_HL:A",	   "2W9D_HL", "1QM1_A"),
     ("3EOA_LH:I",	   "3EO9_LH", "3F74_A"),
     ("3HMX_LH:AB",	   "3HMW_LH", "1F45_AB"),

@@ -159,26 +159,12 @@ def merge_structures(input_pdb_paths, output_pdb_path):
         utils.pdb_tools_pipeline(zip_file_path, output_pdb_path, steps)
 
 
-def haddock_workflow(global_log, global_prop, global_paths, complex_ids=None):
-    """Subworkflow 1: antibody-antigen docking with HADDOCK3
+def prepare_structures(global_log, global_prop, global_paths, complex_ids):
+    """Steps 1_repair to 1_6: the antibody, the antigen and the reference complex to dock.
 
-    The chains to keep from every structure come from the 'reference', 'antibody'
-    and 'antigen' global properties, 'complex_ids' is the already resolved
-    selection when this subworkflow is run from workflow.py.
+    Kept apart from the docking so the exploration notebooks can measure the very
+    structures HADDOCK3 starts from (notebooks/exploration/ab_rmsds.py).
     """
-    if complex_ids is None:
-        complex_ids = utils.resolve_complex(global_prop["step1_0_prepare_antibody"])
-    reference, antibody, antigen = (complex_ids['reference'], complex_ids['antibody'],
-                                    complex_ids['antigen'])
-    global_log.info(f'  Antibody {antibody["pdb_code"]} chains {antibody["chains"]}, '
-                    f'antigen {antigen["pdb_code"]} chains {antigen["chains"]}, '
-                    f'reference {reference["pdb_code"]} chains '
-                    f'{reference["antibody_chains"]} + {reference["antigen_chains"]}')
-    for name in ('reference', 'antibody', 'antigen'):
-        if complex_ids[name]['model'] is not None:
-            global_log.info(f'  Model {complex_ids[name]["model"]} of the {name} entry '
-                            f'{complex_ids[name]["pdb_code"]} will be extracted')
-
     for name in ('antibody', 'antigen'):
         step = f'step1_repair_{name}'
         global_log.info(f'{step}: Repair backbone and side chains before contact mapping')
@@ -224,6 +210,31 @@ def haddock_workflow(global_log, global_prop, global_paths, complex_ids=None):
     global_log.info("step1_6_merge_reference_complex: Merge the antibody and the antigen of the reference complex")
     reference_prep = global_paths["step1_6_merge_reference_complex"]['output_pdb_path']
     merge_structures([reference_antibody, reference_antigen], reference_prep)
+    return antibody_prep, antigen_prep, reference_prep
+
+
+def haddock_workflow(global_log, global_prop, global_paths, complex_ids=None):
+    """Subworkflow 1: antibody-antigen docking with HADDOCK3
+
+    The chains to keep from every structure come from the 'reference', 'antibody'
+    and 'antigen' global properties, 'complex_ids' is the already resolved
+    selection when this subworkflow is run from workflow.py.
+    """
+    if complex_ids is None:
+        complex_ids = utils.resolve_complex(global_prop["step1_0_prepare_antibody"])
+    reference, antibody, antigen = (complex_ids['reference'], complex_ids['antibody'],
+                                    complex_ids['antigen'])
+    global_log.info(f'  Antibody {antibody["pdb_code"]} chains {antibody["chains"]}, '
+                    f'antigen {antigen["pdb_code"]} chains {antigen["chains"]}, '
+                    f'reference {reference["pdb_code"]} chains '
+                    f'{reference["antibody_chains"]} + {reference["antigen_chains"]}')
+    for name in ('reference', 'antibody', 'antigen'):
+        if complex_ids[name]['model'] is not None:
+            global_log.info(f'  Model {complex_ids[name]["model"]} of the {name} entry '
+                            f'{complex_ids[name]["pdb_code"]} will be extracted')
+
+    antibody_prep, antigen_prep, reference_prep = prepare_structures(
+        global_log, global_prop, global_paths, complex_ids)
 
     global_log.info("step1_7_haddock_interface: Get the contact residues in the interface of the reference complex")
     paths = global_paths["step1_7_haddock_interface"]
