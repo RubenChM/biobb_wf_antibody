@@ -9,8 +9,8 @@ through cdr.imgt_region_ri, the calls stages 1 and 2 make.
 
 What is left here is what only the notebook needs: the published benchmark values, the I-RMSD as
 the benchmark defines it, the RMSD of the antibody regions, the per-case tables, the checks, the
-docking results read back next to them, and the figures. The notebook calls these and shows what
-they return.
+docking results read back next to them (with the cluster structures the CDR ensembles docked), and
+the figures. The notebook calls these and shows what they return.
 """
 
 from __future__ import annotations
@@ -34,6 +34,7 @@ from Bio.SeqUtils import seq1
 from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.patches import Patch
 from scipy import stats
+from scipy.spatial import cKDTree
 from biobb_common import biobb_global_properties
 from biobb_common.configuration import settings
 from biobb_common.tools import file_utils as fu
@@ -502,6 +503,50 @@ def antibody_rmsds(files, chain_types, modelled=frozenset()):
             'n_cross_chain': len(aligned) - len(pairs)}
 
 
+def chain_lengths(pdb_path, chains, model=None):
+    """Residues of every chain of `chains`, in that order, as prepare_antigen keeps them in chain B.
+
+    It extracts the ATOM residues of the requested model, or of the whole entry with the MODELs of an
+    assembly joined and named by utils.merge_models, chain by chain in the listed order.
+    """
+    text = Path(pdb_path).read_text()
+    if model is None:
+        text = utils.merge_models(text, chains)
+    elif 'MODEL' in text:
+        text = text.split(f'MODEL{int(model):>9d}', 1)[1].split('ENDMDL', 1)[0]
+    residues = {c: set() for c in chains}
+    for line in text.splitlines():
+        if line.startswith('ATOM') and line[21] in residues:
+            residues[line[21]].add(line[22:27])
+    return [len(residues[c]) for c in chains]
+
+
+def antigen_rmsd(idx, files, modelled=frozenset()):
+    """Ca RMSD of the whole unbound antigen against the bound one, fitted on itself, and how many residues.
+
+    The fused chain B hides where one antigen chain ends and the next begins, and the alignment can
+    pair across that junction (3HMX: the last residue of the unbound chain A with one of the bound
+    chain B, 39.5 A apart), so pairs are kept only within the same chain, and residues the repair built
+    are left out.
+    """
+    ids = case_config(idx)['ids']
+    slots = {}
+    for side, pdb, chains, model in (('reference', files['reference_entry'], ids['reference']['antigen_chains'],
+                                      ids['reference']['model']),
+                                     ('antigen', files['antigen_fixed'], ids['antigen']['chains'], None)):
+        lengths = chain_lengths(pdb, chains.split(','), model)
+        ca = read_ca(files[side], 'B')
+        if sum(lengths) != len(ca):
+            raise ValueError(f'case {idx}: chains {chains} of {pdb} hold {sum(lengths)} residues, '
+                             f'chain B of {files[side]} {len(ca)}')
+        slots[side] = dict(zip(sorted(ca), np.repeat(np.arange(len(lengths)), lengths)))
+    ref, unb = read_ca(files['reference'], 'B'), read_ca(files['antigen'], 'B')
+    pairs = {r: u for r, u in residue_map(files['reference'], files['antigen'], 'B', sorted(ref)).items()
+             if slots['reference'][r] == slots['antigen'][u] and u not in modelled}
+    dev = deviations(np.array([ref[r] for r in pairs]), np.array([unb[u] for u in pairs.values()]))
+    return rmsd(dev), len(pairs)
+
+
 def write_superposed(files, frame, output_pdb):
     """The prepared unbound antibody moved into the bound frame by `frame` (fit of its Ca)."""
     u = mda.Universe(files['antibody'])
@@ -560,12 +605,18 @@ IRMSD_COLUMNS = ['ref_code', 'unb_code', 'benchmark_irmsd', 'bench_irmsd', 'benc
 
 
 def irmsd_table(cases, files, bench_files, modelled):
-    """I-RMSD per case of the benchmark files ('bench_*') and of the workflow structures ('wf_*')."""
+    """I-RMSD per case of the benchmark files ('bench_*') and of the workflow structures ('wf_*').
+
+    'wf_antigen' is the whole workflow antigen against the bound one (antigen_rmsd), over 'wf_n_antigen'
+    residues.
+    """
     rows = []
     for idx in files:
         bench, ours = irmsd(bench_files[idx]), irmsd(files[idx], modelled[idx])
+        antigen, n_antigen = antigen_rmsd(idx, files[idx], modelled[idx]['B'])
         rows.append({'case_idx': idx, **{f'bench_{k}': v for k, v in bench.items()},
-                     **{f'wf_{k}': v for k, v in ours.items()}})
+                     **{f'wf_{k}': v for k, v in ours.items()},
+                     'wf_antigen': antigen, 'wf_n_antigen': n_antigen})
     irm = cases[['ref_code', 'unb_code', 'difficulty', 'benchmark_irmsd']].join(
         pd.DataFrame(rows).set_index('case_idx'))
     irm.to_csv(RES / 'ab_rmsds_irmsd.csv')
@@ -654,7 +705,7 @@ def pick(df, extent, scheme):
 def summary_table(irm, df):
     """One row per case: the I-RMSDs and the HEADLINE RMSDs, sorted by published I-RMSD (saved)."""
     summary = irm[['ref_code', 'unb_code', 'difficulty', 'benchmark_irmsd', 'bench_irmsd', 'wf_irmsd',
-                   'wf_irmsd_ab', 'wf_irmsd_ag']].copy()
+                   'wf_irmsd_ab', 'wf_irmsd_ag', 'wf_antigen']].copy()
     for name, (extent, scheme) in HEADLINE.items():
         summary[name] = pick(df, extent, scheme)
     summary = summary.sort_values('benchmark_irmsd')
@@ -684,6 +735,15 @@ def run_checks(files, df, summary, idx=13):
     gap = (summary.interface_ab - summary.wf_irmsd_ab).abs()
     assert gap.max() < 0.01, gap
     print(f'4. antibody side of the I-RMSD vs interface extent: largest difference {gap.max():.1e} A')
+
+
+def report_antigen(summary):
+    """The antigen, the benchmark's ligand: the whole of it against its side of the interface (figure 3, below)."""
+    for key, label in (('wf_antigen', 'whole antigen (self)        '), ('wf_irmsd_ag', 'interface, antigen side (self)')):
+        print(f'{label}: {summary[key].min():.2f} - {summary[key].max():.2f} A (median {summary[key].median():.2f})')
+    more = summary.wf_antigen > summary.wf_irmsd_ag
+    print(f'the whole antigen differs more than its interface side in {int(more.sum())}/{len(summary)} cases; largest: '
+          + ', '.join(f'{r.ref_code} {r.wf_antigen:.2f} A' for _, r in summary.nlargest(3, 'wf_antigen').iterrows()))
 
 
 def report_cdr_vs_framework(summary):
@@ -793,6 +853,32 @@ TOP = 10
 # protomers came in file order (prepare_antigen before the fix of finding 2), which caps their
 # DockQ. They are to be run again: empty this once their new tables are copied in
 FILE_ORDER_REFERENCE = ('4FQI', '4GXU')
+# DockQ is the mean of fnat and of the i-RMSD and L-RMSD scaled by these (Basu & Wallner 2016)
+DOCKQ_SCALE = {'irmsd': 1.5, 'lrmsd': 8.5}
+# A model with the right interface: the i-RMSD of a medium-quality CAPRI model, and the fewest such
+# models whose median L-RMSD is read
+RIGHT_INTERFACE, MIN_RIGHT = 2.0, 5
+# The CDR-loop clusters each ensemble docked, one MODEL per cluster, copied back with the tables
+ENSEMBLE_PDB = {'md': Path('step2_23_gmx_cluster') / 'antibody_clusters.pdb',
+                'awh': Path('step3_27_gmx_cluster') / 'antibody_clusters.pdb'}
+# What a docked antibody structure is measured by, as (extent, fitted extent) of antibody_rmsds: the
+# Fv in a whole-Fab fit, which is the superposition caprieval's L-RMSD makes, and the CDRs in the
+# framework frame
+STRUCTURE_RMSDS = {'fv_in_full': ('fv', 'full'), 'cdr_fw': ('cdr_all', 'framework'),
+                   'H3_fw': ('H3', 'framework'), 'L3_fw': ('L3', 'framework')}
+# CHARMM names histidine by its protonation state, calls Ile CD1 CD and the C-terminal oxygens OT1/OT2
+CHARMM_RESNAMES = {'HSD': 'HIS', 'HSE': 'HIS', 'HSP': 'HIS'}
+CHARMM_ATOMS = {('ILE', 'CD'): 'CD1'}
+BACKBONE = {'N', 'CA', 'C', 'O', 'OXT', 'OT1', 'OT2'}
+# The paratope: the antibody residues with a heavy atom this close to the antigen in the bound complex
+PARATOPE_CUTOFF = 4.5
+# Its side chains, each residue on its own backbone (side_chain_rmsds); lower is closer to bound in both
+SIDE_CHAIN_RMSDS = ('paratope_sc', 'paratope_chi1_off')
+CHI1_TOLERANCE = 40
+CHI1_GAMMA = {'SER': 'OG', 'THR': 'OG1', 'CYS': 'SG', 'VAL': 'CG1', 'ILE': 'CG1'}  # CG in the others
+# Atom names a 180-degree flip of the side chain exchanges
+SYMMETRIC = {'PHE': (('CD1', 'CD2'), ('CE1', 'CE2')), 'TYR': (('CD1', 'CD2'), ('CE1', 'CE2')),
+             'ASP': (('OD1', 'OD2'),), 'GLU': (('OE1', 'OE2'),), 'ARG': (('NH1', 'NH2'),)}
 
 
 def docking_table(cases):
@@ -877,6 +963,212 @@ def perfect_pose_dockq(files, bench_files):
     return pp
 
 
+def docking_models(cases):
+    """Every refined model of the cluster runs, one row each: its HADDOCK score and caprieval metrics."""
+    frames = []
+    for idx in cases.index:
+        for protocol, run in DOCKING_RUNS.items():
+            table = HPC_RESULTS / f'case_{idx}' / run / CAPRI_TABLE
+            if table.is_file():
+                d = pd.read_csv(table, sep='\t', usecols=['model', 'score', 'fnat', 'irmsd', 'lrmsd', 'dockq'])
+                frames.append(d.assign(case_idx=idx, ref_code=cases.ref_code[idx], protocol=protocol))
+    return pd.concat(frames, ignore_index=True)
+
+
+def dockq_terms(models):
+    """Per case, what each ensemble changes in the mean of every DockQ term over its refined models.
+
+    DockQ = (fnat + 1/(1 + (i-RMSD/1.5)^2) + 1/(1 + (L-RMSD/8.5)^2)) / 3, so the change of the mean
+    DockQ is a third of the sum of the changes of its terms ('d_<term>_<protocol>'). The L-RMSD is
+    caprieval's: the RMSD of the antigen (chain B) once the whole antibody (chain A, constant
+    domains included) is superposed on the bound one.
+    """
+    terms = models.assign(fnat_term=models.fnat,
+                          **{f'{m}_term': 1 / (1 + (models[m] / s) ** 2) for m, s in DOCKQ_SCALE.items()})
+    names = ['dockq', 'fnat_term', 'irmsd_term', 'lrmsd_term']
+    mean = terms.groupby(['case_idx', 'protocol'])[names].mean().unstack()
+    out = models.groupby('case_idx').ref_code.first().to_frame()
+    for protocol in ('md', 'awh'):
+        for name in names:
+            out[f'd_{name.removesuffix("_term")}_{protocol}'] = mean[(name, protocol)] - mean[(name, 'baseline')]
+    return out.dropna(subset=['d_dockq_awh'])
+
+
+def read_residues(lines, chain=None):
+    """[(residue name, {heavy atom: coordinates})] of the ATOM records, in file order, CHARMM names translated.
+
+    A residue starts at every new chain or residue number and at every backbone N: the cluster
+    structures keep the entry's numbering without its insertion codes (ASP 52 then PRO 52).
+    """
+    residues, key = [], None
+    for line in lines:
+        if not line.startswith('ATOM') or (chain and line[21] != chain):
+            continue
+        atom, name = line[12:16].strip(), line[17:21].strip()
+        name = CHARMM_RESNAMES.get(name, name)
+        if atom.lstrip('0123456789').startswith('H'):
+            continue
+        if line[21:27] != key or (atom == 'N' and 'N' in residues[-1][1]):
+            residues.append((name, {}))
+            key = line[21:27]
+        residues[-1][1][CHARMM_ATOMS.get((name, atom), atom)] = np.array(
+            [float(line[30:38]), float(line[38:46]), float(line[46:54])])
+    return residues
+
+
+def read_models(pdb_path):
+    """read_residues of every MODEL of a multi-model PDB file."""
+    models = []
+    for line in Path(pdb_path).read_text().splitlines():
+        if line.startswith('MODEL'):
+            models.append([])
+        elif models:
+            models[-1].append(line)
+    return [read_residues(lines) for lines in models]
+
+
+def structure_rmsds(reference_pdb, a, ca):
+    """STRUCTURE_RMSDS of one antibody structure against the bound one.
+
+    `ca` = {unbound resid: Ca coordinates}; `a` is the antibody_rmsds output of the case, whose pairs
+    and extents are used as they are.
+    """
+    ref = read_ca(reference_pdb, 'A')
+
+    def coords(extent):
+        resids = a['extents'][extent]
+        return np.array([ref[a['pairs'][u]] for u in resids]), np.array([ca[u] for u in resids])
+    return {name: rmsd(deviations(*coords(extent), fit(*coords(fitted))))
+            for name, (extent, fitted) in STRUCTURE_RMSDS.items()}
+
+
+def paratope(bound, antigen, pairs, unbound):
+    """{bound resid: unbound resid} of the paratope residues, of the same type on both sides.
+
+    The paratope is the bound antibody residues with a heavy atom within PARATOPE_CUTOFF of the antigen;
+    `bound` and `unbound` are {resid: read_residues entry}, `antigen` the bound antigen's residues and
+    `pairs` antibody_rmsds' {unbound resid: bound resid}.
+    """
+    tree = cKDTree(np.array([xyz for _, atoms in antigen for xyz in atoms.values()]))
+    to_unbound = {r: u for u, r in pairs.items()}
+    return {r: to_unbound[r] for r, (name, atoms) in bound.items()
+            if r in to_unbound and unbound[to_unbound[r]][0] == name
+            and tree.query(np.array(list(atoms.values())))[0].min() <= PARATOPE_CUTOFF}
+
+
+def _dihedral(p0, p1, p2, p3):
+    b0, b1, b2 = p0 - p1, (p2 - p1) / np.linalg.norm(p2 - p1), p3 - p2
+    v, w = b0 - np.dot(b0, b1) * b1, b2 - np.dot(b2, b1) * b1
+    return np.degrees(np.arctan2(np.dot(np.cross(b1, v), w), np.dot(v, w)))
+
+
+def side_chain_rmsds(bound, residues, para):
+    """SIDE_CHAIN_RMSDS of one antibody structure over the paratope `para` = {bound resid: resid}.
+
+    Every residue is superposed on the bound one by its own N, Ca and C, so the loop it sits on does not
+    count: 'paratope_sc' is the RMSD of the atoms past Cb, with the naming of SYMMETRIC atoms that fits
+    better; 'paratope_chi1_off' the fraction of chi1 angles more than CHI1_TOLERANCE degrees off.
+    """
+    dev, off = [], []
+    for r, u in para.items():
+        name, ref = bound[r]
+        atoms = residues[u][1]
+        side = [a for a in ref if a not in BACKBONE and a != 'CB' and a in atoms]
+        if side:
+            frame = fit(np.array([ref[a] for a in ('N', 'CA', 'C')]), np.array([atoms[a] for a in ('N', 'CA', 'C')]))
+            x = np.array([ref[a] for a in side])
+            namings = [dict(zip(side, side))]
+            if name in SYMMETRIC:
+                flip = dict(sum(([(p, q), (q, p)] for p, q in SYMMETRIC[name]), []))
+                namings.append({a: flip.get(a, a) for a in side})
+            dev.append(min((deviations(x, np.array([atoms[naming[a]] for a in side]), frame) for naming in namings),
+                           key=rmsd))
+        gamma = CHI1_GAMMA.get(name, 'CG')
+        if all(a in ref and a in atoms for a in ('N', 'CA', 'CB', gamma)):
+            chi = [_dihedral(*(at[a] for a in ('N', 'CA', 'CB', gamma))) for at in (ref, atoms)]
+            off.append(abs((chi[0] - chi[1] + 180) % 360 - 180) > CHI1_TOLERANCE)
+    return {'paratope_sc': rmsd(np.concatenate(dev)), 'paratope_chi1_off': float(np.mean(off))}
+
+
+def ensemble_rmsds(files, ab):
+    """How far every docked antibody structure is from the bound one (saved).
+
+    The baseline docking docks the prepared unbound antibody; the MD and AWH ensembles dock the
+    cluster structures of ENSEMBLE_PDB, which come from the MD of that same antibody and so hold its
+    residues in its order. That is checked residue by residue, and so is that no chain is broken
+    across the periodic box, before they are measured as the unbound one is: STRUCTURE_RMSDS on the
+    Ca, SIDE_CHAIN_RMSDS over the paratope. One row per structure.
+    """
+    rows = []
+    for idx, f in files.items():
+        resids = sorted(read_ca(f['antibody'], 'A'))
+        unbound = dict(zip(resids, read_residues(Path(f['antibody']).read_text().splitlines(), 'A'), strict=True))
+        ref_lines = Path(f['reference']).read_text().splitlines()
+        bound = dict(zip(sorted(read_ca(f['reference'], 'A')), read_residues(ref_lines, 'A'), strict=True))
+        para = paratope(bound, read_residues(ref_lines, 'B'), ab[idx]['pairs'], unbound)
+        names = [name for name, _ in unbound.values()]
+        slot = chain_slots(f['antibody_merged'])
+        structures = [('unbound', 0, unbound)]
+        for source, rel in ENSEMBLE_PDB.items():
+            path = HPC_RESULTS / f'case_{idx}' / rel
+            if not path.is_file():
+                continue
+            for member, model in enumerate(read_models(path), 1):
+                if [name for name, _ in model] != names:
+                    raise ValueError(f'{path} model {member} is not the prepared antibody of case {idx}')
+                structures.append((source, member, dict(zip(resids, model))))
+        for source, member, residues in structures:
+            ca = {u: atoms['CA'] for u, (_, atoms) in residues.items()}
+            # an MD structure has no gap of its own, a long Ca-Ca step is the periodic box
+            gap = max(np.linalg.norm(ca[u] - ca[v]) for u, v in zip(resids, resids[1:]) if slot[u] == slot[v])
+            if source != 'unbound' and gap > 4.5:
+                raise ValueError(f'case {idx} {source} {member}: a chain is broken ({gap:.1f} A between Ca)')
+            rows.append({'case_idx': idx, 'source': source, 'member': member, 'n_paratope': len(para),
+                         **structure_rmsds(f['reference'], ab[idx], ca), **side_chain_rmsds(bound, residues, para)})
+    ens = pd.DataFrame(rows)
+    ens.to_csv(RES / 'ab_rmsds_ensembles.csv', index=False)
+    return ens
+
+
+def ensemble_table(ens, summary):
+    """Per case: the unbound value, and the median and the closest member of each ensemble, of every measure.
+
+    The unbound antibody, measured here as the members are, must give the summary's values.
+    """
+    unbound = ens[ens.source == 'unbound'].set_index('case_idx')
+    measured = ['fv_in_full', 'cdr_fw', 'H3_fw']
+    gap = (unbound[measured] - summary.loc[unbound.index, measured]).abs().max().max()
+    assert gap < 1e-6, f'the unbound antibody measures {gap:.2g} A away from the summary'
+    out = summary[['ref_code']].copy()
+    out['n_paratope'] = unbound.n_paratope
+    for name in (*STRUCTURE_RMSDS, *SIDE_CHAIN_RMSDS):
+        stat = ens.groupby(['case_idx', 'source'])[name].agg(['median', 'min']).unstack()
+        out[f'{name}_unbound'] = stat[('median', 'unbound')]
+        for source in ENSEMBLE_PDB:
+            out[f'{name}_{source}'] = stat[('median', source)]
+            out[f'{name}_{source}_min'] = stat[('min', source)]
+    return out.dropna(subset=['cdr_fw_awh'])
+
+
+def lrmsd_vs_elbow(models, ens):
+    """Per case and protocol: the L-RMSD of the right-interface models next to the elbow of what was docked.
+
+    'lrmsd_right' is the median L-RMSD of the models with i-RMSD <= RIGHT_INTERFACE ('n_right' of
+    them; NaN under MIN_RIGHT), 'elbow' the median Fv error in a whole-Fab fit of the structures the
+    protocol docked: the unbound antibody for the baseline, the cluster members for the ensembles.
+    """
+    right = models[models.irmsd <= RIGHT_INTERFACE].groupby(['case_idx', 'protocol']).lrmsd.agg(['median', 'size'])
+    elbow = ens.groupby(['case_idx', 'source']).fv_in_full.median()
+    rows = []
+    for (idx, protocol), (median, n) in right.iterrows():
+        source = 'unbound' if protocol == 'baseline' else protocol
+        if (idx, source) in elbow.index:
+            rows.append({'case_idx': idx, 'ref_code': models.ref_code[models.case_idx == idx].iloc[0],
+                         'protocol': protocol, 'n_right': int(n), 'elbow': elbow[(idx, source)],
+                         'lrmsd_right': median if n >= MIN_RIGHT else np.nan})
+    return pd.DataFrame(rows)
+
+
 # ============================================================================
 # Figures
 # ============================================================================
@@ -929,7 +1221,8 @@ def label_points(ax, xs, ys, labels, tol=0.04, same_units=True):
             groups.append([i])
     for group in groups:
         right = max(group, key=lambda i: xs[i])
-        ax.annotate(', '.join(str(list(labels)[i]) for i in group), (xs[right], ys[right]), fontsize=7.5,
+        names = dict.fromkeys(str(list(labels)[i]) for i in group)  # one case in two protocols: once
+        ax.annotate(', '.join(names), (xs[right], ys[right]), fontsize=7.5,
                     xytext=(5, -3), textcoords='offset points', color=INK_MUTED)
 
 
@@ -984,20 +1277,34 @@ def plot_irmsd_sides(irm):
 
 
 def plot_case_bars(summary):
-    """Figure 3: framework, Fv, interface and CDR RMSD per case, with the published I-RMSD."""
-    bars = [('framework', 'framework (self)'), ('fv', 'whole Fv (self)'),
-            ('interface_ab', 'interface, antibody side (self)'), ('cdr_fw', 'all CDRs (framework frame)'),
-            ('H3_fw', 'CDR-H3 (framework frame)')]
+    """Figure 3: per case, the antibody (framework, Fv, interface, CDRs) and the antigen (the ligand of
+    the benchmark: whole and interface), with the published I-RMSD of both partners on each panel.
+
+    The antigen's two bars take the colours of the antibody's whole Fv and interface, the same extents.
+    The whole antigen of 3HMX, 3G6D, 3V6Z, 2VXT and the trimers reaches past the antibody scale, so each
+    panel has its own.
+    """
+    antibody = [('framework', 'framework (self)'), ('fv', 'whole Fv (self)'),
+                ('interface_ab', 'interface, antibody side (self)'), ('cdr_fw', 'all CDRs (framework frame)'),
+                ('H3_fw', 'CDR-H3 (framework frame)')]
+    antigen = [('wf_antigen', 'whole antigen (self)', SERIES[1]),
+               ('wf_irmsd_ag', 'interface, antigen side (self)', SERIES[2])]
     x, width = np.arange(len(summary)), 0.16
-    fig, ax = plt.subplots(figsize=(15, 6.5))
-    for i, (key, label) in enumerate(bars):
-        ax.bar(x + (i - 2) * width, summary[key], width, label=label, color=SERIES[i],
-               edgecolor='white', linewidth=1)
-    ax.plot(x, summary.benchmark_irmsd, 'D', color=INK, ms=7, label='published I-RMSD (both partners)', zorder=5)
-    ax.set_xticks(x, [f'{r.ref_code}/{r.unb_code}\n{r.difficulty}' for _, r in summary.iterrows()], fontsize=8)
-    ax.set(ylabel='Cα RMSD (Å)', xlabel='case (sorted by published I-RMSD)',
-           title='Bound vs unbound antibody: framework, Fv, interface and CDR loops')
-    ax.legend(fontsize=9, ncol=2)
+    fig, (top, bottom) = plt.subplots(2, 1, figsize=(15, 10), sharex=True, height_ratios=(1.3, 1))
+    for i, (key, label) in enumerate(antibody):
+        top.bar(x + (i - 2) * width, summary[key], width, label=label, color=SERIES[i],
+                edgecolor='white', linewidth=1)
+    for i, (key, label, color) in enumerate(antigen):
+        bottom.bar(x + (i - 0.5) * width, summary[key], width, label=label, color=color,
+                   edgecolor='white', linewidth=1)
+    for ax in (top, bottom):
+        ax.plot(x, summary.benchmark_irmsd, 'D', color=INK, ms=7, label='published I-RMSD (both partners)', zorder=5)
+        ax.set(ylabel='Cα RMSD (Å)')
+        ax.legend(fontsize=9, ncol=2, loc='upper left')
+    top.set_title('Bound vs unbound antibody: framework, Fv, interface and CDR loops')
+    bottom.set_title('Bound vs unbound antigen (the ligand): whole and interface')
+    bottom.set_xticks(x, [f'{r.ref_code}/{r.unb_code}\n{r.difficulty}' for _, r in summary.iterrows()], fontsize=8)
+    bottom.set_xlabel('case (sorted by published I-RMSD)')
     _save(fig, 'fig3_per_case_bars.png')
 
 
@@ -1107,10 +1414,79 @@ def plot_docking_gain(gain, capped=()):
     _save(fig, 'fig8_docking_gain_vs_cdr.png')
 
 
+def plot_lrmsd_vs_elbow(le):
+    """Figure 9: the L-RMSD of the right-interface models against the elbow of the docked structures."""
+    le = le.dropna(subset=['lrmsd_right'])
+    fig, ax = plt.subplots(figsize=(9.5, 6))
+    for protocol in DOCKING_RUNS:
+        grp = le[le.protocol == protocol]
+        ax.scatter(grp.elbow, grp.lrmsd_right, s=70, color=PROTOCOL_COLOR[protocol], edgecolor='white',
+                   linewidth=1.5, zorder=3, label=PROTOCOL_LABEL[protocol])
+    label_points(ax, le.elbow, le.lrmsd_right, le.ref_code, tol=0.05, same_units=False)
+    r = stats.spearmanr(le.elbow, le.lrmsd_right)
+    ax.set(xlabel='Fv Cα RMSD to bound in a whole-Fab fit, docked structures (median, Å)',
+           ylabel=f'L-RMSD of the models with i-RMSD ≤ {RIGHT_INTERFACE:g} Å (median, Å)',
+           title=f'With the interface right, the L-RMSD measures the elbow\n'
+                 f'Spearman ρ = {r.statistic:+.2f} over {len(le)} case × protocol points')
+    ax.set_xlim(0, 1.1 * le.elbow.max())
+    ax.set_ylim(bottom=0)
+    ax.legend(loc='upper left', fontsize=9)
+    _save(fig, 'fig9_lrmsd_vs_elbow.png')
+
+
+# The per-structure measures figure 10 and report_ensembles show, with their axis labels
+ENSEMBLE_MEASURES = {'cdr_fw': 'CDR Cα RMSD to bound,\nframework frame (Å)',
+                     'paratope_sc': 'paratope side chains\nRMSD to bound (Å)',
+                     'fv_in_full': 'Fv Cα RMSD to bound,\nwhole-Fab fit (Å)',
+                     'paratope_chi1_off': 'paratope χ1 more than\n40° off (fraction)'}
+
+
+def plot_ensembles(ens, gain, capped=()):
+    """Figure 10: what each ensemble gains, and how far the structures it docked are from the bound antibody.
+
+    Cases are ordered by the AWH gain in acceptable models; the `capped` ones are left out. Below the
+    gains, every docked structure: the unbound antibody (a bar) and the 20 members of each ensemble
+    (dots), by the CDR displacement in the framework frame and by the paratope side chains, each on
+    its own backbone.
+    """
+    gain = gain.dropna(subset=['d_acceptable_awh']).drop(capped, errors='ignore').sort_values('d_acceptable_awh')
+    x = np.arange(len(gain))
+    rows = ('cdr_fw', 'paratope_sc')
+    fig, axes = plt.subplots(1 + len(rows), 1, figsize=(13, 11), sharex=True, height_ratios=(1, 1.4, 1.4))
+    unbound = ens[ens.source == 'unbound'].set_index('case_idx')
+    for shift, protocol in ((-0.18, 'md'), (0.18, 'awh')):
+        axes[0].bar(x + shift, 100 * gain[f'd_acceptable_{protocol}'], width=0.34, color=PROTOCOL_COLOR[protocol],
+                    edgecolor='white', linewidth=1, label=f'{PROTOCOL_LABEL[protocol]} − baseline')
+        members = ens[ens.source == protocol]
+        for ax, name in zip(axes[1:], rows):
+            for i, idx in enumerate(gain.index):
+                y = members[name][members.case_idx == idx]
+                ax.scatter(np.full(len(y), i + shift) + np.linspace(-0.07, 0.07, len(y)), y, s=14,
+                           color=PROTOCOL_COLOR[protocol], alpha=0.8, linewidth=0, zorder=3,
+                           label=PROTOCOL_LABEL[protocol] if i == 0 else None)
+    for ax, name in zip(axes[1:], rows):
+        ax.hlines(unbound[name][gain.index], x - 0.38, x + 0.38, color=PROTOCOL_COLOR['baseline'], lw=2.5,
+                  zorder=4, label='unbound antibody (baseline docking)')
+        # headroom for the legend above the highest structure
+        ax.set(ylabel=ENSEMBLE_MEASURES[name], ylim=(0, 1.2 * ens.loc[ens.case_idx.isin(gain.index), name].max()))
+        ax.legend(loc='upper left', fontsize=9, ncol=3, frameon=False)
+    axes[0].axhline(0, color=INK_MUTED, lw=1)
+    axes[0].set(ylabel='change in acceptable\nmodels (% points)',
+                title='What each ensemble gains over the baseline docking, and what it docked')
+    axes[0].legend(loc='upper left', fontsize=9, frameon=False)
+    axes[-1].set_xticks(x, gain.ref_code)
+    _save(fig, 'fig10_ensembles_vs_gain.png')
+
+
 def report_docking_gain(gain, capped=()):
-    """Spearman correlation of the CDR displacement with what each ensemble changes."""
+    """Spearman correlation of the CDR displacement with what each ensemble changes.
+
+    The cases in `capped` are left out: their DockQ is not comparable.
+    """
+    if len(capped):
+        print('left out, their reference caps DockQ:', ', '.join(gain.ref_code[gain.index.isin(capped)]))
     for protocol in ('md', 'awh'):
-        g = gain.dropna(subset=[f'd_acceptable_{protocol}'])
+        g = gain.dropna(subset=[f'd_acceptable_{protocol}']).drop(capped, errors='ignore')
         parts = []
         for metric, label in (('acceptable', 'acceptable models'), ('best_dockq', 'best DockQ'),
                               ('top', f'acceptable in top {TOP}')):
@@ -1120,10 +1496,70 @@ def report_docking_gain(gain, capped=()):
         d = g[f'd_acceptable_{protocol}']
         print(f'    more acceptable models than the baseline in {int((d > 0.005).sum())}, fewer in '
               f'{int((d < -0.005).sum())}, as many in {int((d.abs() <= 0.005).sum())}')
-    g = gain.dropna(subset=['d_acceptable_awh'])
-    r = stats.spearmanr(g.awh_start_dockq, g.d_acceptable_awh)
-    print(f'AWH gain in acceptable models vs DockQ of the baseline model it starts from: '
-          f'rho = {r.statistic:+.2f} (p = {r.pvalue:.2f})')
-    if len(capped):
-        print('cases whose reference caps DockQ (their DockQ is not comparable):',
-              ', '.join(gain.ref_code[gain.index.isin(capped)]))
+
+
+def report_dockq_terms(terms, capped=()):
+    """Which DockQ terms carry the change of each ensemble, summed over the comparable cases."""
+    t = terms.drop(capped, errors='ignore')
+    for protocol in ('md', 'awh'):
+        parts = ', '.join(f'{name} {t[f"d_{name}_{protocol}"].sum() / 3:+.2f}' for name in ('fnat', 'irmsd', 'lrmsd'))
+        print(f'{PROTOCOL_LABEL[protocol]}, {len(t)} cases: mean DockQ {t[f"d_dockq_{protocol}"].sum():+.2f} '
+              f'in all = {parts} (a third of each term)')
+    big = t.d_dockq_awh.nlargest(2)
+    print(f'largest AWH changes: ' + ', '.join(f'{t.ref_code[i]} {v:+.2f}' for i, v in big.items())
+          + f' of {t.d_dockq_awh.clip(lower=0).sum():+.2f} gained in all')
+
+
+def report_lrmsd_vs_elbow(le):
+    """The L-RMSD of the right-interface models against the elbow, pooled and per protocol."""
+    v = le.dropna(subset=['lrmsd_right'])
+    r = stats.spearmanr(v.elbow, v.lrmsd_right)
+    print(f'pooled: rho = {r.statistic:+.2f} (p = {r.pvalue:.1g}), {len(v)} case x protocol points '
+          f'with at least {MIN_RIGHT} models of i-RMSD <= {RIGHT_INTERFACE:g} A')
+    for protocol in DOCKING_RUNS:
+        grp = v[v.protocol == protocol]
+        r = stats.spearmanr(grp.elbow, grp.lrmsd_right)
+        print(f'    {PROTOCOL_LABEL[protocol]:22s}: rho = {r.statistic:+.2f} (p = {r.pvalue:.2f}), {len(grp)} cases')
+
+
+def report_ensembles(gain, et, capped=()):
+    """What the AWH gain does and does not follow; returns one row of tests per ENSEMBLE_MEASURES.
+
+    Per measure (lower is closer to bound): in how many cases the AWH ensemble's median member is
+    closer than the unbound antibody and than the free-MD median, in how many its closest member is
+    closer than the unbound one, and the Spearman correlation of the AWH gain in acceptable models with
+    the AWH - unbound change (median member, closest member), and of the AWH - MD difference in
+    acceptable models with the AWH - MD difference of the medians. Then the pose the AWH starts from.
+    """
+    g = gain.dropna(subset=['d_acceptable_awh']).drop(capped, errors='ignore')
+    e = et.loc[g.index]
+    d_acc = g.acceptable_awh - g.acceptable_md
+    n = len(g)
+    print(f'{n} cases with both ensembles, capped ones left out; AWH more acceptable models than free MD in '
+          f'{int((d_acc > 0.005).sum())}/{n}, fewer in {int((d_acc < -0.005).sum())}')
+    rows = []
+    for name in ENSEMBLE_MEASURES:
+        tests = {'AWH gain ~ AWH − unbound (median)': (g.d_acceptable_awh, e[f'{name}_awh'] - e[f'{name}_unbound']),
+                 'AWH gain ~ AWH − unbound (closest)': (g.d_acceptable_awh, e[f'{name}_awh_min'] - e[f'{name}_unbound']),
+                 'AWH − MD ~ AWH − MD (median)': (d_acc, e[f'{name}_awh'] - e[f'{name}_md'])}
+        row = {'measure': name, 'cases': n,
+               'AWH median closer than unbound': int((e[f'{name}_awh'] < e[f'{name}_unbound']).sum()),
+               'AWH median closer than MD': int((e[f'{name}_awh'] < e[f'{name}_md']).sum()),
+               'AWH closest closer than unbound': int((e[f'{name}_awh_min'] < e[f'{name}_unbound']).sum())}
+        for label, (y, x) in tests.items():
+            r = stats.spearmanr(y, x)
+            row[f'ρ {label}'], row[f'p {label}'] = r.statistic, r.pvalue
+        rows.append(row)
+
+    def rho(x, y, label):
+        r = stats.spearmanr(x, y)
+        print(f'    {label}: rho = {r.statistic:+.2f} (p = {r.pvalue:.2f})')
+    print('The pose stage 3 starts the AWH from (the baseline cluster_1_model_1):')
+    rho(g.awh_start_dockq, g.d_acceptable_awh, 'its DockQ vs the AWH gain                  ')
+    rho(g.awh_start_dockq, g.acceptable_baseline, 'its DockQ vs the baseline acceptable models')
+    rho(g.awh_start_dockq, g.acceptable_awh, 'its DockQ vs the AWH acceptable models     ')
+    wrong = g[g.awh_start_dockq < ACCEPTABLE]
+    print(f'    started from an incorrect pose (DockQ < {ACCEPTABLE}): ' + ', '.join(
+        f'{r.ref_code} {r.awh_start_dockq:.2f} (acceptable {100 * r.acceptable_baseline:.0f}% -> {100 * r.acceptable_awh:.0f}%)'
+        for _, r in wrong.iterrows()))
+    return pd.DataFrame(rows).set_index('measure')
