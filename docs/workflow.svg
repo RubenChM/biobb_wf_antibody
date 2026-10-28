@@ -1,0 +1,158 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="680" height="890" viewBox="0 0 680 890" role="img">
+<title>biobb_wf_antibody workflow</title>
+<desc>Stage 0 downloads the reference complex, unbound antibody and unbound antigen. Stage 1 repairs and prepares them, builds restraints from the reference interface and runs the baseline HADDOCK3 docking. Stage 2 runs free MD of the repaired antibody, clusters its CDR loops and docks that ensemble. Stage 3 runs AWH multi-walker MD of the best docked complex, clusters its CDR loops using the IMGT numbering from stage 2 and docks that ensemble. results.py compares the three dockings.</desc>
+<style>
+  :root {
+    --bg: #FFFFFF; --ink: #2C2C2A; --line: #73726C; --frame: #B4B2A9;
+    --gray-fill: #F1EFE8; --gray-stroke: #5F5E5A; --gray-title: #444441; --gray-sub: #5F5E5A;
+    --teal-fill: #E1F5EE; --teal-stroke: #0F6E56; --teal-title: #085041; --teal-sub: #0F6E56;
+    --purple-fill: #EEEDFE; --purple-stroke: #534AB7; --purple-title: #3C3489; --purple-sub: #534AB7;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1F1F1E; --ink: #F1EFE8; --line: #B4B2A9; --frame: #5F5E5A;
+      --gray-fill: #444441; --gray-stroke: #B4B2A9; --gray-title: #F1EFE8; --gray-sub: #D3D1C7;
+      --teal-fill: #085041; --teal-stroke: #5DCAA5; --teal-title: #E1F5EE; --teal-sub: #9FE1CB;
+      --purple-fill: #3C3489; --purple-stroke: #AFA9EC; --purple-title: #EEEDFE; --purple-sub: #CECBF6;
+    }
+  }
+  text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; dominant-baseline: central; }
+  .th { font-size: 14px; font-weight: 600; fill: var(--ink); }
+  .ts { font-size: 12px; fill: var(--ink); }
+  .stage { fill: none; stroke: var(--frame); stroke-width: 1; stroke-dasharray: 4 4; }
+  .arr { fill: none; stroke: var(--line); stroke-width: 1.2; }
+  .gray rect { fill: var(--gray-fill); stroke: var(--gray-stroke); stroke-width: 0.6; }
+  .gray .th { fill: var(--gray-title); } .gray .ts { fill: var(--gray-sub); }
+  .teal rect { fill: var(--teal-fill); stroke: var(--teal-stroke); stroke-width: 0.6; }
+  .teal .th { fill: var(--teal-title); } .teal .ts { fill: var(--teal-sub); }
+  .purple rect { fill: var(--purple-fill); stroke: var(--purple-stroke); stroke-width: 0.6; }
+  .purple .th { fill: var(--purple-title); } .purple .ts { fill: var(--purple-sub); }
+</style>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M2 1L8 5L2 9" fill="none" stroke="#888780" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></marker></defs>
+
+<rect x="0" y="0" width="680" height="890" rx="12" fill="var(--bg)"/>
+
+<!-- Stage 0: workflow.py -->
+<rect class="stage" x="40" y="20" width="600" height="114" rx="12"/>
+<text class="th" x="56" y="40">Stage 0 · PDB download · workflow.py</text>
+<g class="gray">
+<rect x="56" y="58" width="176" height="56" rx="8"/>
+<text class="th" x="144" y="76" text-anchor="middle">Reference complex</text>
+<text class="ts" x="144" y="94" text-anchor="middle">step0_1_pdb_reference</text>
+</g>
+<g class="gray">
+<rect x="252" y="58" width="176" height="56" rx="8"/>
+<text class="th" x="340" y="76" text-anchor="middle">Unbound antibody</text>
+<text class="ts" x="340" y="94" text-anchor="middle">step0_2_pdb_antibody</text>
+</g>
+<g class="gray">
+<rect x="448" y="58" width="176" height="56" rx="8"/>
+<text class="th" x="536" y="76" text-anchor="middle">Unbound antigen</text>
+<text class="ts" x="536" y="94" text-anchor="middle">step0_3_pdb_antigen</text>
+</g>
+
+<line class="arr" x1="144" y1="114" x2="144" y2="190" marker-end="url(#arrow)"/>
+<line class="arr" x1="340" y1="114" x2="340" y2="190" marker-end="url(#arrow)"/>
+<line class="arr" x1="536" y1="114" x2="536" y2="190" marker-end="url(#arrow)"/>
+
+<!-- Stage 1: stages/haddock.py -->
+<rect class="stage" x="40" y="154" width="600" height="204" rx="12"/>
+<text class="th" x="56" y="174">Stage 1 · baseline docking · stages/haddock.py</text>
+<g class="gray">
+<rect x="56" y="192" width="568" height="56" rx="8"/>
+<text class="th" x="340" y="210" text-anchor="middle">Repair and prepare structures</text>
+<text class="ts" x="340" y="228" text-anchor="middle">step1_repair_*, step1_0–1_6 · antibody → chain A, antigen → chain B</text>
+</g>
+<line class="arr" x1="185" y1="248" x2="185" y2="282" marker-end="url(#arrow)"/>
+<line class="arr" x1="495" y1="248" x2="495" y2="282" marker-end="url(#arrow)"/>
+<g class="gray">
+<rect x="56" y="284" width="258" height="56" rx="8"/>
+<text class="th" x="185" y="302" text-anchor="middle">Build restraints</text>
+<text class="ts" x="185" y="320" text-anchor="middle">step1_7–1_11 · from interface</text>
+</g>
+<line class="arr" x1="314" y1="312" x2="364" y2="312" marker-end="url(#arrow)"/>
+<g class="purple">
+<rect x="366" y="284" width="258" height="56" rx="8"/>
+<text class="th" x="495" y="302" text-anchor="middle">Dock with HADDOCK3</text>
+<text class="ts" x="495" y="320" text-anchor="middle">step1_12 · baseline run</text>
+</g>
+
+<!-- Hand-offs: repaired antibody to stage 2, best model to stage 3, baseline docking to results.py -->
+<path class="arr" d="M56 220 L46 220 L46 444 L54 444" marker-end="url(#arrow)"/>
+<line class="arr" x1="600" y1="340" x2="600" y2="414" marker-end="url(#arrow)"/>
+<path class="arr" d="M624 312 L634 312 L634 808 L626 808" marker-end="url(#arrow)"/>
+
+<!-- Stage 2: stages/MD.py -->
+<rect class="stage" x="40" y="378" width="290" height="364" rx="12"/>
+<text class="th" x="56" y="398">Stage 2 · free MD · MD.py</text>
+<g class="teal">
+<rect x="56" y="416" width="258" height="56" rx="8"/>
+<text class="th" x="185" y="434" text-anchor="middle">Antibody system setup</text>
+<text class="ts" x="185" y="452" text-anchor="middle">step2_0–2_13 · repaired antibody</text>
+</g>
+<line class="arr" x1="185" y1="472" x2="185" y2="498" marker-end="url(#arrow)"/>
+<g class="teal">
+<rect x="56" y="500" width="258" height="56" rx="8"/>
+<text class="th" x="185" y="518" text-anchor="middle">Production MD</text>
+<text class="ts" x="185" y="536" text-anchor="middle">step2_14–2_18 · imaged, fitted</text>
+</g>
+<line class="arr" x1="185" y1="556" x2="185" y2="582" marker-end="url(#arrow)"/>
+<g class="gray">
+<rect x="56" y="584" width="258" height="56" rx="8"/>
+<text class="th" x="185" y="602" text-anchor="middle">CDR-loop clustering</text>
+<text class="ts" x="185" y="620" text-anchor="middle">step2_19–2_23 · ANARCII, gromos</text>
+</g>
+<line class="arr" x1="185" y1="640" x2="185" y2="666" marker-end="url(#arrow)"/>
+<g class="purple">
+<rect x="56" y="668" width="258" height="56" rx="8"/>
+<text class="th" x="185" y="686" text-anchor="middle">Dock CDR ensemble</text>
+<text class="ts" x="185" y="704" text-anchor="middle">step2_24–2_26 · same restraints</text>
+</g>
+
+<!-- Stage 3: stages/AWH.py -->
+<rect class="stage" x="350" y="378" width="290" height="364" rx="12"/>
+<text class="th" x="366" y="398">Stage 3 · AWH-MD · AWH.py</text>
+<g class="teal">
+<rect x="366" y="416" width="258" height="56" rx="8"/>
+<text class="th" x="495" y="434" text-anchor="middle">Complex system setup</text>
+<text class="ts" x="495" y="452" text-anchor="middle">step3_0–3_15 · best docked model</text>
+</g>
+<line class="arr" x1="495" y1="472" x2="495" y2="498" marker-end="url(#arrow)"/>
+<g class="teal">
+<rect x="366" y="500" width="258" height="56" rx="8"/>
+<text class="th" x="495" y="518" text-anchor="middle">AWH multi-walker MD</text>
+<text class="ts" x="495" y="536" text-anchor="middle">step3_16–3_21 · 4 walkers</text>
+</g>
+<line class="arr" x1="495" y1="556" x2="495" y2="582" marker-end="url(#arrow)"/>
+<g class="gray">
+<rect x="366" y="584" width="258" height="56" rx="8"/>
+<text class="th" x="495" y="602" text-anchor="middle">CDR-loop clustering</text>
+<text class="ts" x="495" y="620" text-anchor="middle">step3_22–3_27 · pbc cluster</text>
+</g>
+<line class="arr" x1="495" y1="640" x2="495" y2="666" marker-end="url(#arrow)"/>
+<g class="purple">
+<rect x="366" y="668" width="258" height="56" rx="8"/>
+<text class="th" x="495" y="686" text-anchor="middle">Dock CDR ensemble</text>
+<text class="ts" x="495" y="704" text-anchor="middle">step3_28–3_30 · same restraints</text>
+</g>
+
+<!-- IMGT numbering of step2_19 reused by step3_25 -->
+<line class="arr" x1="314" y1="612" x2="364" y2="612" marker-end="url(#arrow)"/>
+
+<!-- stages/results.py, run separately over the finished cases -->
+<line class="arr" x1="185" y1="724" x2="185" y2="778" marker-end="url(#arrow)"/>
+<line class="arr" x1="495" y1="724" x2="495" y2="778" marker-end="url(#arrow)"/>
+<g class="gray">
+<rect x="56" y="780" width="568" height="56" rx="8" stroke-dasharray="4 3"/>
+<text class="th" x="340" y="798" text-anchor="middle">Compare the three dockings</text>
+<text class="ts" x="340" y="816" text-anchor="middle">stages/results.py · DockQ vs HADDOCK score, run separately per case</text>
+</g>
+
+<!-- Legend -->
+<g class="teal"><rect x="56" y="853" width="14" height="14" rx="3"/></g>
+<text class="ts" x="78" y="860">GROMACS MD</text>
+<g class="purple"><rect x="200" y="853" width="14" height="14" rx="3"/></g>
+<text class="ts" x="222" y="860">HADDOCK3 docking</text>
+<g class="gray"><rect x="370" y="853" width="14" height="14" rx="3"/></g>
+<text class="ts" x="392" y="860">Preparation and analysis</text>
+</svg>
